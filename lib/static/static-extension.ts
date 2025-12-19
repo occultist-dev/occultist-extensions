@@ -4,49 +4,19 @@ import {createReadStream} from "fs";
 import {opendir, readFile} from "fs/promises";
 import {join} from "path";
 import {Readable} from "stream";
+import {DependancyGraph, DependancyMap} from './dependancy-graph.ts';
+import {FileInfo} from './file-info.ts';
+import type {Directory, ReferenceParser} from './types.ts';
+import {CSSReferenceParser} from './css-parser.ts';
 
 
-export type ExtensionMap = Map<string, string>;
+type ExtensionMap = Map<string, string>;
 
-export type FileInfo = {
-  /**
-   * The name of the file.
-   */
-  name: string;
+type FileInfoMap = Map<string, FileInfo>;
 
-  /**
-   * Path of the file relative to the configured directory.
-   */
-  path: string;
+type HashMap = Map<string, string>;
 
-  /**
-   * Directoy the file is located in.
-   */
-  directory: string;
-
-  /**
-   * The file's extension.
-   */
-  extension: string;
-
-  /**
-   * The file's language if detected.
-   */
-  lang?: string;
-
-  /**
-   * The file's content type.
-   */
-  contentType: string;
-};
-
-export type FileInfoMap = Map<string, FileInfo>;
-
-export type ContentMap = Map<string, Blob>;
-
-export type HashMap = Map<string, string>;
-
-export type ActionMap = Map<string, ImplementedAction>;
+type ActionMap = Map<string, ImplementedAction>;
 
 export const defaultExtensions = {
   txt: 'text/plain',
@@ -55,6 +25,9 @@ export const defaultExtensions = {
   js: 'application/javascript',
 } as const;
 
+export const defaultParsers: ReferenceParser[] = [
+  new CSSReferenceParser(),
+];
 
 export type StaticExtensionArgs = {
 
@@ -71,13 +44,18 @@ export type StaticExtensionArgs = {
   /**
    * Directories to serve as static content.
    */ 
-  directories: string[];
+  directories: Directory[];
 
   /**
    * A javascript object mapping file extensions
    * to their content types.
    */
   extensions?: Record<string, string>;
+
+  /**
+   *
+   */
+  parsers?: ReferenceParser[];
 
   /**
    * A path prefix where static assets should be served.
@@ -93,75 +71,119 @@ export type StaticExtensionArgs = {
  * to hashed actions.
  */
 export class StaticExtension {
-
   #loaded: boolean = false;
   #registry: Registry;
   #cache: Cache | undefined;
-  #directories: string[];
+  #directories: Directory[];
   #extensions: ExtensionMap;
+  #parsers: ReferenceParser[];
   #prefix: string;
   #files: FileInfoMap = new Map();
-  #content: ContentMap = new Map();
   #hashes: HashMap = new Map();
   #actions: ActionMap = new Map();
+  #dependancies: DependancyGraph | undefined;
 
   constructor(args: StaticExtensionArgs) {
     this.#registry = args.registry;
     this.#cache = args.cache;
     this.#directories = args.directories;
     this.#extensions = new Map(Object.entries(args.extensions ?? defaultExtensions)) as ExtensionMap;
+    this.#parsers = args.parsers ?? defaultParsers;
     this.#prefix = args.prefix ?? '/';
   }
 
-  get(name: string): ImplementedAction | null {
-    return this.#actions.get(name) ?? null;
+  get dependancies(): DependancyGraph | undefined {
+    return this.#dependancies;
+  }
+
+  get(name: string): ImplementedAction | undefined {
+    return this.#actions.get(name);
+  }
+
+  getFile(name: string): FileInfo | undefined {
+    return this.#files.get(name);
   }
   
-  hint(name: string, args: Omit<HintLink, 'href'>): HintLink | null {
+  hint(name: string, args: Omit<HintLink, 'href' | 'contentType'>): HintLink | null {
+    const file = this.#files.get(name);
     const action = this.#actions.get(name);
 
-    if (action == null) return null;
+    if (file == null || action == null) return null;
+
+    const href = action.url();
+
+    if (href == null) return null;
 
     return {
       ...args,
-      href: action.url(),
+      href,
+      type: file.contentType,
     };
   }
+
 
   /**
    * Called when registered with Occultist to
    * run any async tasks and hook into Occultist's
    * extension event system.
    */
-  load = (): ReadableStream => {
+  load = (): ReadableStream & Promise<void> => {
     if (this.#loaded) throw new Error('Static extension already loaded');
 
     const { writable, readable } = new TransformStream();
+    
+    (readable as unknown as Promise<void>).then = async (resolve, reject) => {
+      try {
+        for await (const _ of readable) {}
+      } catch (err) {
+        return reject(err);
+      }
+
+      resolve();
+    }
 
     this.#load(writable.getWriter());
 
-    return readable;
+    return readable as ReadableStream & Promise<void>;
   }
 
   async #load(writer: WritableStreamDefaultWriter): Promise<void> {
     writer.write('Gathering files');
 
     for await (const file of this.#traverse(this.#directories)) {
-      this.#files.set(file.path, file);
+      this.#files.set(file.alias, file);
     }
+
+    const files = Array.from(this.#files.values());
 
     writer.write('Generating hashes');
-    for (const [name, file] of this.#files.entries()) {
-      const content = await readFile(file.path);
+    for (let i = 0; i < files.length; i++) {
+      const content = await readFile(files[i].absolutePath);
       const hash = createHash('sha256').update(content).digest('hex');
 
-      this.#hashes.set(name, hash);
+      this.#hashes.set(files[i].alias, hash);
     }
+    
+    let dependancyMap: Map<string, DependancyMap>;
+    const dependancyMaps: Array<Map<string, DependancyMap>> = [];
+
+    writer.write('Building dependancy tree');
+    for (let i = 0; i < this.#parsers.length; i++) {
+      dependancyMap = await this.#parsers[i].parse(files);
+
+      if (dependancyMap.size !== 0) dependancyMaps.push(dependancyMap);
+    }
+    
+    this.#dependancies = new DependancyGraph(
+      new Map(dependancyMaps.flatMap((map => Array.from(map.entries()))))
+    );
 
     writer.write('Registering actions');
     for (const [name, file] of this.#files.entries()) {
+      const parts = name.split('/');
+      const friendly = parts[parts.length - 1].split('.')[0];
       const hash = this.#hashes.get(name) as string;
-      let action = this.#registry.http.get(name, joinPaths(this.#prefix, hash))
+      let action = this.#registry.http.get(name, joinPaths(this.#prefix, `${friendly}-${hash}.${file.extension}`))
         .public()
 
       if (this.#cache) {
@@ -170,7 +192,7 @@ export class StaticExtension {
 
       const implemented = action.handle(file.contentType, (ctx) => {
         ctx.headers.set('Cache-Control', 'immutable');
-        ctx.body = Readable.toWeb(createReadStream(join(file.directory, file.path))) as ReadableStream;
+        ctx.body = Readable.toWeb(createReadStream(file.absolutePath)) as ReadableStream;
       });
 
       this.#actions.set(name, implemented);
@@ -182,33 +204,46 @@ export class StaticExtension {
     this.#loaded = true;
   }
 
-  async* #traverse(directories: string[], root: string = ''): AsyncGenerator<FileInfo, void, unknown> {
+  #traverseRe = /.(?:\.(?<lang>[a-zA-Z\-]+))?(?:\.(?<extension>[a-zA-Z0-9]+))$/;
+
+  /**
+   * Traverses into a list of directories outputting a file info object for every file
+   * of a configured file extension.
+   *
+   * @param directories The directories to traverse into.
+   */
+  async* #traverse(directories: Directory[], root: string = ''): AsyncGenerator<FileInfo, void, unknown> {
     for (let i = 0; i < directories.length; i++) {
-      const dir = await opendir(directories[i]);
+      const dir = await opendir(directories[i].path);
 
       for await (const entry of dir) {
-        const fullPath = join(directories[i], entry.name);
-        const match = /.(?:\.(?<lang>[a-zA-Z\-]+))?(?:\.(?<extension>[a-zA-Z\-]+))$/.exec(entry.name);
+        const name = entry.name;
+        const alias = directories[i].alias;
+        const match = this.#traverseRe.exec(entry.name);
+        const absolutePath = join(directories[i].path, entry.name);
+        const directory = root === '' ? directories[i].path : root;
+        const relativePath = absolutePath.replace(directory, '');
         const { lang, extension } = match?.groups ?? {};
         const contentType = this.#extensions.get(extension);
 
         if (contentType == null || extension == null) {
-          console.warn(`File ${fullPath.replace(root, '')} extension not known, skipping...`);
+          console.warn(`File ${joinPaths(alias, relativePath)} extension not known, skipping...`);
 
           continue;
         }
 
         if (entry.isDirectory()) {
-          yield* this.#traverse([fullPath], root === '' ? directories[i] : root);
+          yield* this.#traverse([{ alias, path: absolutePath }], root === '' ? directories[i].path : root);
         } else {
-          yield {
-            name: entry.name,
-            path: fullPath.replace(root, ''),
-            directory: root,
-            contentType,
+          yield new FileInfo(
+            name,
+            alias,
+            relativePath,
+            absolutePath,
             extension,
+            contentType,
             lang,
-          };
+          );
         }
       }
     }
