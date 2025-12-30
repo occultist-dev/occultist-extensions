@@ -53,6 +53,6 @@ export interface ReferenceParser {
    * @param dependancies The dependancy map of the file being processed.
    * @returns content with URLs updated.
    */
-  update(content: Blob, dependancies: DependancyMap): Blob | Promise<Blob>
+  update(base: string, content: Blob, filesByURL: Map<string, FileInfo>): Blob | Promise<Blob>
 
 }

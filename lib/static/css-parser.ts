@@ -92,4 +92,21 @@ export class CSSReferenceParser implements ReferenceParser {
 
     return references;
   }
+
+  async update(base: string, content: Blob, filesByURL: Map<string, FileInfo>): Promise<Blob> {
+    const text = await content.text();
+    const updated = text.replace(ruleRe, (match) => {
+      return match.replace(urlRe, (...matches) => {
+        const src = matches[1] ?? matches[2] ?? matches[3];
+        const url = new URL(src, base).toString();
+        const file = filesByURL.get(url);
+
+        if (file == null) return matches[0];
+
+        return `url(${file.url})`;
+      })
+    })
+
+    return new Blob([updated], { type: 'text/css' });
+  }
 }

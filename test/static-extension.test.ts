@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
-import {CSSReferenceParser} from '../lib/static/css-parser.ts';
 import {StaticExtension} from '../lib/static/static-extension.ts';
 import type {Directory} from '../lib/static/types.ts';
 
@@ -15,7 +14,7 @@ const sampleDir: Directory = {
 };
 
 
-test('It collects dependencies for css files', { only: true }, async () => {
+test('It updates hyperlinks to their static immutable form', async () => {
   const registry = new Registry({
     rootIRI: 'https://example.com',
   });
@@ -28,7 +27,15 @@ test('It collects dependencies for css files', { only: true }, async () => {
   
   await registry.setupExtensions();
 
-  console.log(extension.dependancies.debug());
+  const fee = extension.getFile('sample/fee.css');
+  const fie = extension.getFile('sample/fie.css');
+  const foo = extension.getFile('sample/foo.png');
+
+  const res = await registry.handleRequest(new Request(fee.url));
+  const text = await res.text();
+
+  assert(text.includes(fie.url));
+  assert(text.includes(foo.url));
 });
 
 test('It registers static files', async () => {
@@ -53,5 +60,5 @@ test('It registers static files', async () => {
 
 async function hashFile(file: string): Promise<string> {
   const content = await readFile(file);
-  return createHash('sha256').update(content).digest('hex');
+  return createHash('sha1').update(content).digest('hex');
 }

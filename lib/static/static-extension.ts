@@ -24,7 +24,13 @@ export const defaultExtensions = {
   txt: 'text/plain',
   html: 'text/html',
   css: 'text/css',
+  xhtml: 'application/xhtml+xml',
+  xht: 'application/xhtml+xml',
   js: 'application/javascript',
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  woff: 'font/woff',
+  woff2: 'font/woff2',
 } as const;
 
 export const defaultParsers: ReferenceParser[] = [
@@ -89,10 +95,11 @@ export class StaticExtension implements Extension {
   #cache: Cache | undefined;
   #directories: Directory[];
   #extensions: ExtensionMap;
-  #parsers: ReferenceParser[];
+  #parsers: Map<string, ReferenceParser> = new Map();
   #prefix: string;
   #filesByAlias: FilesByAlias = new Map();
   #filesByURL: FilesByURL = new Map();
+  #filesByContentType: Map<string, FileInfo[]> = new Map();
   #hashes: HashMap = new Map();
   #actions: ActionMap = new Map();
   #dependancies: DependancyGraph | undefined;
@@ -103,12 +110,17 @@ export class StaticExtension implements Extension {
     this.#cache = args.cache;
     this.#directories = args.directories;
     this.#extensions = new Map(Object.entries(args.extensions ?? defaultExtensions)) as ExtensionMap;
-    this.#parsers = args.parsers ?? defaultParsers;
     this.#prefix = args.prefix ?? '/';
     this.#cspTypes = new Set(args.cspTypes || defaultCSPTypes);
 
     this.#registry.registerExtension(this);
     this.#registry.addEventListener('afterfinalize', this.onAfterFinalize);
+
+    for (const parser of args.parsers ?? defaultParsers) {
+      for (const contentType of parser.contentTypes) {
+        this.#parsers.set(contentType, parser);
+      }
+    }
   }
 
   /**
@@ -197,36 +209,45 @@ export class StaticExtension implements Extension {
       file = files[i] as WorkingFileInfo;
 
       const content = await readFile(file.absolutePath);
-      const hash = createHash('sha256').update(content).digest('hex');
+      const hash = createHash('sha1').update(content).digest('hex');
       const parts = file.name.split('/');
       const friendly = parts[parts.length - 1].split('.')[0];
       const rootURL = this.#registry.rootIRI;
       const aliasURL = joinPaths(rootURL, this.#prefix, file.alias);
       const url = joinPaths(rootURL, this.#prefix, `${friendly}-${hash}.${file.extension}`);
       
-      console.log(aliasURL);
-      
-      file.finalize(hash, url);
-      this.#filesByURL.set(aliasURL, file);
+      file.finalize(hash, url, aliasURL);
       this.#hashes.set(file.alias, hash);
+      this.#filesByAlias.set(file.alias, file);
+      this.#filesByURL.set(aliasURL, file);
+      
+      if (!this.#filesByContentType.has(file.contentType)) {
+        this.#filesByContentType.set(file.contentType, []);
+      }
+
+      this.#filesByContentType.get(file.contentType).push(file);
     }
     
-    let dependancyMap: Map<string, DependancyMap>;
     const dependancyMaps: Array<Map<string, DependancyMap>> = [];
 
     writer.write('Building dependancy tree');
-    for (let i = 0; i < this.#parsers.length; i++) {
-      dependancyMap = await this.#parsers[i].parse(this.#filesByURL);
 
-      if (dependancyMap.size !== 0) dependancyMaps.push(dependancyMap);
+    for (const contentType of this.#extensions.values()) {
+      const parser = this.#parsers.get(contentType);
+
+      if (parser != null) {
+        dependancyMaps.push(await parser.parse(this.#filesByURL));
+
+      }
     }
-    
+
     this.#dependancies = new DependancyGraph(
-      new Map(dependancyMaps.flatMap((map => Array.from(map.entries()))))
+      new Map(dependancyMaps.flatMap((map => Array.from(map.entries())))),
     );
 
     writer.write('Registering actions');
     for (const [name, file] of this.#filesByAlias.entries()) {
+      const parser = this.#parsers.get(file.contentType);
       const parts = name.split('/');
       const friendly = parts[parts.length - 1].split('.')[0];
       const hash = this.#hashes.get(name) as string;
@@ -237,9 +258,14 @@ export class StaticExtension implements Extension {
         action = action.cache(this.#cache.store({ immutable: true }));
       }
 
-      const implemented = action.handle(file.contentType, (ctx) => {
-        ctx.headers.set('Cache-Control', 'immutable');
-        ctx.body = Readable.toWeb(createReadStream(file.absolutePath)) as ReadableStream;
+      const implemented = action.handle(file.contentType, async (ctx) => {
+        if (parser != null) {
+          const content = await readFile(file.absolutePath);
+
+          ctx.body = await parser.update(file.aliasURL, new Blob([content]), this.#filesByURL);
+        } else {
+          ctx.body = Readable.toWeb(createReadStream(file.absolutePath)) as ReadableStream;
+        }
       });
 
       this.#actions.set(name, implemented);

@@ -10,11 +10,14 @@ export class DependancyMap {
   constructor(file: FileInfo, references: ReferenceDetails[]) {
     this.file = file;
     this.references = references;
+  }
 
+  finalize() {
     let reference: ReferenceDetails;
     let policies: ReferenceDetails[];
-    for (let i = 0; i < references.length; i++) {
-      reference = references[i];
+
+    for (let i = 0; i < this.references.length; i++) {
+      reference = this.references[i];
       policies = this.polices.get(reference.directive);
 
       if (policies == null) {
@@ -24,10 +27,6 @@ export class DependancyMap {
 
       policies.push(reference);
     }
-
-    Object.freeze(this.references);
-    Object.freeze(this.polices);
-    Object.freeze(this);
   }
 }
 
@@ -36,6 +35,30 @@ export class DependancyGraph {
   
   constructor(dependancies: Map<string, DependancyMap>) {
     this.dependancies = dependancies;
+
+    for (const dependancyMap of this.dependancies.values()) {
+      for (let i = 0; i < dependancyMap.references.length; i++) {
+        const reference = dependancyMap.references[i];
+
+        if (reference.file == null) {
+          console.warn(`Unknown dependancy reference ${reference.url}`);
+          
+          continue;
+        }
+
+        const other = this.dependancies.get(reference.file.alias);
+
+        if (other == null) {
+          continue;
+        }
+     
+        for (let j = 0; j < other.references.length; j++) {
+          dependancyMap.references.push(other.references[j]);
+        }
+      }
+
+      dependancyMap.finalize();
+    }
     
     Object.freeze(this.dependancies);
     Object.freeze(this);
@@ -53,7 +76,7 @@ export class DependancyGraph {
       if (i !== 0) debug += '\n';
 
       dependancy = dependancies[i];
-      debug += `${dependancy.file.alias}\n`;
+      debug += dependancy.file.alias + '\n';
 
       const polices = Array.from(dependancy.polices.entries());
       
@@ -66,8 +89,7 @@ export class DependancyGraph {
         debug += `  ${policy}\n`;
 
         for (let j = 0; j < references.length; j++) {
-          console.log(references[i]);
-          debug += `    ${references[j].url} ${references[j].file?.hash}\n`;
+          debug += `    ${references[j].url}\n`;
         }
       }
     }

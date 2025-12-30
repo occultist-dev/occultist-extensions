@@ -52,6 +52,11 @@ export type FileInfo = {
    */
   url: string;
 
+  /**
+   * alias url for this resource.
+   */
+  aliasURL: string;
+
 }
 
 /**
@@ -109,6 +114,11 @@ export class WorkingFileInfo {
    */
   url: string | null = null;
 
+  /**
+   * alias url for this resource.
+   */
+  aliasURL: string | null = null;
+
   constructor(
     name: string,
     directoryAlias: string,
@@ -131,9 +141,11 @@ export class WorkingFileInfo {
   finalize(
     hash: string,
     url: string,
+    aliasURL: string,
   ) {
     this.hash = hash;
     this.url = url;
+    this.aliasURL = aliasURL;
 
     Object.freeze(this);
   }
