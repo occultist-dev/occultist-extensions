@@ -19,17 +19,14 @@ test('It collects dependencies for css files', { only: true }, async () => {
   const registry = new Registry({
     rootIRI: 'https://example.com',
   });
+
   const extension = new StaticExtension({
     registry,
     directories: [sampleDir],
     prefix: '/static',
   });
   
-  await extension.load();
-
-  const parser = new CSSReferenceParser();
-  const file = extension.getFile('sample/fee.css');
-  const deps = await parser.parse([file]);
+  await registry.setupExtensions();
 
   console.log(extension.dependancies.debug());
 });
@@ -44,9 +41,7 @@ test('It registers static files', async () => {
     prefix: '/static',
   });
   
-  await extension.load();
-
-  registry.finalize();
+  await registry.setupExtensions();
 
   const hint = extension.hint('sample/fee.css', { as: 'stylesheet' });
   const hash = await hashFile(resolve(sampleDir.path, 'fee.css'));

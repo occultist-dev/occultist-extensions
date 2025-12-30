@@ -1,4 +1,4 @@
-import {FileInfo} from "./file-info.ts";
+import type {FileInfo} from "./file-info.ts";
 import type {PolicyDirective, ReferenceDetails} from "./types.ts";
 
 
@@ -47,8 +47,8 @@ export class DependancyGraph {
   debug(): string {
     let debug = 'Dependancy Graph\n----------------\n\n';
     let dependancy: DependancyMap;
-
     const dependancies = Array.from(this.dependancies.values());
+
     for (let i = 0; i < dependancies.length; i++) {
       if (i !== 0) debug += '\n';
 
@@ -66,7 +66,8 @@ export class DependancyGraph {
         debug += `  ${policy}\n`;
 
         for (let j = 0; j < references.length; j++) {
-          debug += `    ${references[j].url}\n`;
+          console.log(references[i]);
+          debug += `    ${references[j].url} ${references[j].file?.hash}\n`;
         }
       }
     }

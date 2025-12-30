@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@occultist/occultist':
-        specifier: ^0.0.2
-        version: 0.0.2(json-ptr@3.1.1)(jsonld@9.0.0)
+        specifier: ^0.0.9
+        version: 0.0.9(json-ptr@3.1.1)(jsonld@9.0.0)
     devDependencies:
       '@longform/longform':
         specifier: ^0.0.6
@@ -216,8 +216,8 @@ packages:
   '@longform/longform@0.0.6':
     resolution: {integrity: sha512-f/bBuiabtGazSfX1gYcu3eKNLggWoF/daZh6pWNvrHWRHmXo4s9/vAqlCBUUYqcbrfnziXg+BC5v0vG9JlVXeA==}
 
-  '@occultist/occultist@0.0.2':
-    resolution: {integrity: sha512-wHpeDjsGlGzSJrZJhmdVwSgmQz9Gb688p6fjsBVRYGLX7UkpN0uVfBpoiUz+OJZMFpKfOGY7ryGSGMK9skGPqg==}
+  '@occultist/occultist@0.0.9':
+    resolution: {integrity: sha512-3GgitvXxHvuiQC321tzvSFcl+sLHZ515zCPpy4uSGw9a6wZQ5QbvDIRxhe7z93d6Y9A27pZJK2liFkMESpYvBA==}
     peerDependencies:
       json-ptr: ^3.1.1
       jsonld: ^9.0.0
@@ -623,7 +623,7 @@ snapshots:
 
   '@longform/longform@0.0.6': {}
 
-  '@occultist/occultist@0.0.2(json-ptr@3.1.1)(jsonld@9.0.0)':
+  '@occultist/occultist@0.0.9(json-ptr@3.1.1)(jsonld@9.0.0)':
     dependencies:
       json-ptr: 3.1.1
       jsonld: 9.0.0

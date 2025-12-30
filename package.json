@@ -44,6 +44,6 @@
   },
   "version": "0.0.2",
   "dependencies": {
-    "@occultist/occultist": "^0.0.2"
+    "@occultist/occultist": "^0.0.9"
   }
 }

@@ -1,7 +1,7 @@
 import {readFile} from "node:fs/promises";
 import type {PolicyDirective, ReferenceDetails, ReferenceParser} from "./types.js";
 import {DependancyMap} from "./dependancy-graph.ts";
-import {FileInfo} from "./file-info.ts";
+import {type FileInfo} from "./file-info.ts";
 
 
 type PolicyDirectiveMap = Record<string, PolicyDirective>;
@@ -38,19 +38,16 @@ export class CSSReferenceParser implements ReferenceParser {
   /**
    * Reads the content of the given files where the content type is css, and all files referenced by
    */
-  async parse(files: FileInfo[]): Promise<Map<string, DependancyMap>> {
-    let file: FileInfo;
+  async parse(filesByURL: Map<string, FileInfo>): Promise<Map<string, DependancyMap>> {
     let data: string;
     let references: ReferenceDetails[];
     let dependancyMap: Map<string, DependancyMap> = new Map();
     
-    for (let i = 0; i < files.length; i++) {
-      file = files[i];
-
+    for (const [url, file] of filesByURL.entries()) {
       if (!this.contentTypes.includes(file.contentType)) continue;
 
       data = await readFile(file.absolutePath, 'utf-8');
-      references = this.parseReferences(data);
+      references = this.parseReferences(url, data, filesByURL);
       dependancyMap.set(file.alias, new DependancyMap(file, references));
     }
 
@@ -62,7 +59,11 @@ export class CSSReferenceParser implements ReferenceParser {
    *
    * @param content Content of a css file.
    */
-  parseReferences(content: string): ReferenceDetails[] {
+  parseReferences(
+    base: string,
+    content: string,
+    filesByURL: Map<string, FileInfo>,
+  ): ReferenceDetails[] {
     let m1: RegExpExecArray | null;
     let m2: RegExpExecArray | null;
     let property: string;
@@ -79,11 +80,12 @@ export class CSSReferenceParser implements ReferenceParser {
 
       this.urlRe.lastIndex = 0;
       while ((m2 = this.urlRe.exec(m1[3]))) {
-        url = m2[1] ?? m2[2] ?? m2[3];
-
+        url = new URL(m2[1] ?? m2[2] ?? m2[3], base).toString();
+        
         references.push({
           url,
           directive,
+          file: filesByURL.get(url),
         });
       }
     }

@@ -1,18 +1,20 @@
-import {type Cache, type HintLink, type ImplementedAction, joinPaths, Registry} from '@occultist/occultist';
+import {type Extension, type Cache, type HintLink, type ImplementedAction, joinPaths, Registry} from '@occultist/occultist';
 import {createHash} from "crypto";
 import {createReadStream} from "fs";
 import {opendir, readFile} from "fs/promises";
 import {join} from "path";
 import {Readable} from "stream";
 import {DependancyGraph, DependancyMap} from './dependancy-graph.ts';
-import {FileInfo} from './file-info.ts';
+import {type FileInfo, WorkingFileInfo} from './file-info.ts';
 import type {Directory, ReferenceParser} from './types.ts';
 import {CSSReferenceParser} from './css-parser.ts';
 
 
 type ExtensionMap = Map<string, string>;
 
-type FileInfoMap = Map<string, FileInfo>;
+type FilesByAlias = Map<string, FileInfo>;
+
+type FilesByURL = Map<string, FileInfo>;
 
 type HashMap = Map<string, string>;
 
@@ -27,6 +29,11 @@ export const defaultExtensions = {
 
 export const defaultParsers: ReferenceParser[] = [
   new CSSReferenceParser(),
+];
+
+export const defaultCSPTypes = [
+  'text/html',
+  'application/xhtml+xml',
 ];
 
 export type StaticExtensionArgs = {
@@ -58,6 +65,11 @@ export type StaticExtensionArgs = {
   parsers?: ReferenceParser[];
 
   /**
+   * Array of content types to auto generate CSP headers for.
+   */
+  cspTypes?: string[];
+
+  /**
    * A path prefix where static assets should be served.
    */
   prefix?: string;
@@ -70,7 +82,8 @@ export type StaticExtensionArgs = {
  * Other endpoints can use the hint method to register early hints linking
  * to hashed actions.
  */
-export class StaticExtension {
+export class StaticExtension implements Extension {
+  name = 'static';
   #loaded: boolean = false;
   #registry: Registry;
   #cache: Cache | undefined;
@@ -78,10 +91,12 @@ export class StaticExtension {
   #extensions: ExtensionMap;
   #parsers: ReferenceParser[];
   #prefix: string;
-  #files: FileInfoMap = new Map();
+  #filesByAlias: FilesByAlias = new Map();
+  #filesByURL: FilesByURL = new Map();
   #hashes: HashMap = new Map();
   #actions: ActionMap = new Map();
   #dependancies: DependancyGraph | undefined;
+  #cspTypes: Set<string>;
 
   constructor(args: StaticExtensionArgs) {
     this.#registry = args.registry;
@@ -90,6 +105,27 @@ export class StaticExtension {
     this.#extensions = new Map(Object.entries(args.extensions ?? defaultExtensions)) as ExtensionMap;
     this.#parsers = args.parsers ?? defaultParsers;
     this.#prefix = args.prefix ?? '/';
+    this.#cspTypes = new Set(args.cspTypes || defaultCSPTypes);
+
+    this.#registry.registerExtension(this);
+    this.#registry.addEventListener('afterfinalize', this.onAfterFinalize);
+  }
+
+  /**
+   * Promise the action cache for all static actions.
+   */
+  onAfterFinalize = async () => {
+    const promises: Array<Promise<string>> = [];
+
+    for (const action of this.#actions.values()) {
+      promises.push(
+        this.#registry.primeCache(
+          new Request(action.url())
+        )
+      );
+    }
+
+    await Promise.all(promises);
   }
 
   get dependancies(): DependancyGraph | undefined {
@@ -100,12 +136,12 @@ export class StaticExtension {
     return this.#actions.get(name);
   }
 
-  getFile(name: string): FileInfo | undefined {
-    return this.#files.get(name);
+  getFile(alias: string): FileInfo | undefined {
+    return this.#filesByAlias.get(alias);
   }
   
   hint(name: string, args: Omit<HintLink, 'href' | 'contentType'>): HintLink | null {
-    const file = this.#files.get(name);
+    const file = this.#filesByAlias.get(name);
     const action = this.#actions.get(name);
 
     if (file == null || action == null) return null;
@@ -121,13 +157,12 @@ export class StaticExtension {
     };
   }
 
-
   /**
    * Called when registered with Occultist to
    * run any async tasks and hook into Occultist's
    * extension event system.
    */
-  load = (): ReadableStream & Promise<void> => {
+  setup = (): ReadableStream & Promise<void> => {
     if (this.#loaded) throw new Error('Static extension already loaded');
 
     const { writable, readable } = new TransformStream();
@@ -151,17 +186,29 @@ export class StaticExtension {
     writer.write('Gathering files');
 
     for await (const file of this.#traverse(this.#directories)) {
-      this.#files.set(file.alias, file);
+      this.#filesByAlias.set(file.alias, file);
     }
 
-    const files = Array.from(this.#files.values());
+    let file: WorkingFileInfo;
+    const files = Array.from(this.#filesByAlias.values());
 
     writer.write('Generating hashes');
     for (let i = 0; i < files.length; i++) {
-      const content = await readFile(files[i].absolutePath);
-      const hash = createHash('sha256').update(content).digest('hex');
+      file = files[i] as WorkingFileInfo;
 
-      this.#hashes.set(files[i].alias, hash);
+      const content = await readFile(file.absolutePath);
+      const hash = createHash('sha256').update(content).digest('hex');
+      const parts = file.name.split('/');
+      const friendly = parts[parts.length - 1].split('.')[0];
+      const rootURL = this.#registry.rootIRI;
+      const aliasURL = joinPaths(rootURL, this.#prefix, file.alias);
+      const url = joinPaths(rootURL, this.#prefix, `${friendly}-${hash}.${file.extension}`);
+      
+      console.log(aliasURL);
+      
+      file.finalize(hash, url);
+      this.#filesByURL.set(aliasURL, file);
+      this.#hashes.set(file.alias, hash);
     }
     
     let dependancyMap: Map<string, DependancyMap>;
@@ -169,7 +216,7 @@ export class StaticExtension {
 
     writer.write('Building dependancy tree');
     for (let i = 0; i < this.#parsers.length; i++) {
-      dependancyMap = await this.#parsers[i].parse(files);
+      dependancyMap = await this.#parsers[i].parse(this.#filesByURL);
 
       if (dependancyMap.size !== 0) dependancyMaps.push(dependancyMap);
     }
@@ -179,7 +226,7 @@ export class StaticExtension {
     );
 
     writer.write('Registering actions');
-    for (const [name, file] of this.#files.entries()) {
+    for (const [name, file] of this.#filesByAlias.entries()) {
       const parts = name.split('/');
       const friendly = parts[parts.length - 1].split('.')[0];
       const hash = this.#hashes.get(name) as string;
@@ -187,7 +234,7 @@ export class StaticExtension {
         .public()
 
       if (this.#cache) {
-        action = action.cache(this.#cache.store());
+        action = action.cache(this.#cache.store({ immutable: true }));
       }
 
       const implemented = action.handle(file.contentType, (ctx) => {
@@ -212,7 +259,7 @@ export class StaticExtension {
    *
    * @param directories The directories to traverse into.
    */
-  async* #traverse(directories: Directory[], root: string = ''): AsyncGenerator<FileInfo, void, unknown> {
+  async* #traverse(directories: Directory[], root: string = ''): AsyncGenerator<WorkingFileInfo, void, unknown> {
     for (let i = 0; i < directories.length; i++) {
       const dir = await opendir(directories[i].path);
 
@@ -235,7 +282,7 @@ export class StaticExtension {
         if (entry.isDirectory()) {
           yield* this.#traverse([{ alias, path: absolutePath }], root === '' ? directories[i].path : root);
         } else {
-          yield new FileInfo(
+          yield new WorkingFileInfo(
             name,
             alias,
             relativePath,

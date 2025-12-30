@@ -43,6 +43,16 @@ export interface ReferenceParser {
   /**
    * Method to parse matching files to a dependancy graph.
    */
-  parse(files: FileInfo[]): Promise<Map<string, DependancyMap>>;
+  parse(filesByURL: Map<string, FileInfo>): Map<string, DependancyMap> | Promise<Map<string, DependancyMap>>;
+
+  /**
+   * Updates a file's embedded hyperlinks to point to
+   * final URLs of other static content.
+   *
+   * @param content The file content to update.
+   * @param dependancies The dependancy map of the file being processed.
+   * @returns content with URLs updated.
+   */
+  update(content: Blob, dependancies: DependancyMap): Blob | Promise<Blob>
 
 }
