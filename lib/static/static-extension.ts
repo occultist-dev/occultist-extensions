@@ -1,4 +1,4 @@
-import {type Extension, type Cache, type HintLink, type ImplementedAction, joinPaths, Registry} from '@occultist/occultist';
+import {type StaticExtension as StaticExt, type Extension, type Cache, type HintLink, type ImplementedAction, joinPaths, type Registry, type StaticAsset} from '@occultist/occultist';
 import {createHash} from "crypto";
 import {createReadStream} from "fs";
 import {opendir, readFile} from "fs/promises";
@@ -8,6 +8,7 @@ import {DependancyGraph, DependancyMap} from './dependancy-graph.ts';
 import {type FileInfo, WorkingFileInfo} from './file-info.ts';
 import type {Directory, ReferenceParser} from './types.ts';
 import {CSSReferenceParser} from './css-parser.ts';
+import {JSReferenceParser} from './js-parser.ts';
 
 
 type ExtensionMap = Map<string, string>;
@@ -35,6 +36,7 @@ export const defaultExtensions = {
 
 export const defaultParsers: ReferenceParser[] = [
   new CSSReferenceParser(),
+  new JSReferenceParser(),
 ];
 
 export const defaultCSPTypes = [
@@ -71,11 +73,6 @@ export type StaticExtensionArgs = {
   parsers?: ReferenceParser[];
 
   /**
-   * Array of content types to auto generate CSP headers for.
-   */
-  cspTypes?: string[];
-
-  /**
    * A path prefix where static assets should be served.
    */
   prefix?: string;
@@ -88,12 +85,13 @@ export type StaticExtensionArgs = {
  * Other endpoints can use the hint method to register early hints linking
  * to hashed actions.
  */
-export class StaticExtension implements Extension {
+export class StaticExtension implements Extension, StaticExt {
   name = 'static';
   #loaded: boolean = false;
   #registry: Registry;
   #cache: Cache | undefined;
   #directories: Directory[];
+  #staticAliases: string[] = [];
   #extensions: ExtensionMap;
   #parsers: Map<string, ReferenceParser> = new Map();
   #prefix: string;
@@ -103,7 +101,6 @@ export class StaticExtension implements Extension {
   #hashes: HashMap = new Map();
   #actions: ActionMap = new Map();
   #dependancies: DependancyGraph | undefined;
-  #cspTypes: Set<string>;
 
   constructor(args: StaticExtensionArgs) {
     this.#registry = args.registry;
@@ -111,10 +108,15 @@ export class StaticExtension implements Extension {
     this.#directories = args.directories;
     this.#extensions = new Map(Object.entries(args.extensions ?? defaultExtensions)) as ExtensionMap;
     this.#prefix = args.prefix ?? '/';
-    this.#cspTypes = new Set(args.cspTypes || defaultCSPTypes);
 
     this.#registry.registerExtension(this);
     this.#registry.addEventListener('afterfinalize', this.onAfterFinalize);
+
+    for (let i = 0; i < args.directories.length; i++) {
+      this.#staticAliases.push(args.directories[i].alias);
+    }
+
+    Object.freeze(this.#staticAliases);
 
     for (const parser of args.parsers ?? defaultParsers) {
       for (const contentType of parser.contentTypes) {
@@ -144,11 +146,19 @@ export class StaticExtension implements Extension {
     return this.#dependancies;
   }
 
+  get staticAliases(): string[] {
+    return this.#staticAliases;
+  }
+
   get(name: string): ImplementedAction | undefined {
     return this.#actions.get(name);
   }
 
   getFile(alias: string): FileInfo | undefined {
+    return this.#filesByAlias.get(alias);
+  }
+
+  getAsset(alias: string): StaticAsset | undefined {
     return this.#filesByAlias.get(alias);
   }
   

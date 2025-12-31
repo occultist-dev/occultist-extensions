@@ -14,6 +14,33 @@ const sampleDir: Directory = {
 };
 
 
+test('It parses javascript files', {only: true}, async () => {
+  const registry = new Registry({
+    rootIRI: 'https://example.com',
+  });
+
+  const extension = new StaticExtension({
+    registry,
+    directories: [sampleDir],
+    prefix: '/static',
+  });
+  
+  await registry.setupExtensions();
+  const foo = extension.getFile('sample/foo.js');
+  const fee = extension.getFile('sample/fee.js');
+
+  const res = await registry.handleRequest(
+    new Request(foo.url)
+  );
+
+  const text = await res.text();
+  const parts = text.split(encodeURI(fee.url));
+
+  assert.equal(parts.length, 3);
+
+});
+
+
 test('It updates hyperlinks to their static immutable form', async () => {
   const registry = new Registry({
     rootIRI: 'https://example.com',

@@ -44,6 +44,10 @@
   },
   "version": "0.0.2",
   "dependencies": {
-    "@occultist/occultist": "^0.0.9"
+    "@occultist/occultist": "^0.0.11",
+    "acorn": "^8.15.0",
+    "astring": "^1.9.0",
+    "ts-blank-space": "^0.6.2",
+    "zimmerframe": "^1.1.4"
   }
 }

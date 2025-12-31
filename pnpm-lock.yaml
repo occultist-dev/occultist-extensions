@@ -9,8 +9,20 @@ importers:
   .:
     dependencies:
       '@occultist/occultist':
-        specifier: ^0.0.9
-        version: 0.0.9(json-ptr@3.1.1)(jsonld@9.0.0)
+        specifier: ^0.0.11
+        version: 0.0.11(json-ptr@3.1.1)(jsonld@9.0.0)
+      acorn:
+        specifier: ^8.15.0
+        version: 8.15.0
+      astring:
+        specifier: ^1.9.0
+        version: 1.9.0
+      ts-blank-space:
+        specifier: ^0.6.2
+        version: 0.6.2
+      zimmerframe:
+        specifier: ^1.1.4
+        version: 1.1.4
     devDependencies:
       '@longform/longform':
         specifier: ^0.0.6
@@ -216,8 +228,8 @@ packages:
   '@longform/longform@0.0.6':
     resolution: {integrity: sha512-f/bBuiabtGazSfX1gYcu3eKNLggWoF/daZh6pWNvrHWRHmXo4s9/vAqlCBUUYqcbrfnziXg+BC5v0vG9JlVXeA==}
 
-  '@occultist/occultist@0.0.9':
-    resolution: {integrity: sha512-3GgitvXxHvuiQC321tzvSFcl+sLHZ515zCPpy4uSGw9a6wZQ5QbvDIRxhe7z93d6Y9A27pZJK2liFkMESpYvBA==}
+  '@occultist/occultist@0.0.11':
+    resolution: {integrity: sha512-iqm7yeMov6Hzg8ocst9mftqgWzxs4KZaPCWKH7nT4EZgtWLPenQvZoNvITbFYMxlynY7mL5zstK8mhEv/2y9+w==}
     peerDependencies:
       json-ptr: ^3.1.1
       jsonld: ^9.0.0
@@ -371,6 +383,15 @@ packages:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
     engines: {node: '>=6.5'}
 
+  acorn@8.15.0:
+    resolution: {integrity: sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==}
+    engines: {node: '>=0.4.0'}
+    hasBin: true
+
+  astring@1.9.0:
+    resolution: {integrity: sha512-LElXdjswlqjWrPpJFg1Fx4wpkOCxj1TDHlSV4PlaRxHGWko024xICaa97ZkMfs6DRKlCguiAI+rbXv5GWwXIkg==}
+    hasBin: true
+
   canonicalize@1.0.8:
     resolution: {integrity: sha512-0CNTVCLZggSh7bc5VkX5WWPWO+cyZbNd07IHIsSXLia/eAq+r836hgk+8BKoEh7949Mda87VUOitx5OddVj64A==}
 
@@ -495,6 +516,10 @@ packages:
     resolution: {integrity: sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==}
     engines: {node: '>= 0.4'}
 
+  ts-blank-space@0.6.2:
+    resolution: {integrity: sha512-hZjcHdHrveEKI67v8OzI90a1bizgoDkY7ekE4fH89qJhZgxvmjfBOv98aibCU7OpKbvV3R9p/qd3DrzZqT1cFQ==}
+    engines: {node: '>=18.0.0'}
+
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
@@ -520,6 +545,9 @@ packages:
 
   yallist@4.0.0:
     resolution: {integrity: sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A==}
+
+  zimmerframe@1.1.4:
+    resolution: {integrity: sha512-B58NGBEoc8Y9MWWCQGl/gq9xBCe4IiKM0a2x7GZdQKOW5Exr8S1W24J6OgM1njK8xCRGvAJIL/MxXHf6SkmQKQ==}
 
 snapshots:
 
@@ -623,7 +651,7 @@ snapshots:
 
   '@longform/longform@0.0.6': {}
 
-  '@occultist/occultist@0.0.9(json-ptr@3.1.1)(jsonld@9.0.0)':
+  '@occultist/occultist@0.0.11(json-ptr@3.1.1)(jsonld@9.0.0)':
     dependencies:
       json-ptr: 3.1.1
       jsonld: 9.0.0
@@ -731,6 +759,10 @@ snapshots:
     dependencies:
       event-target-shim: 5.0.1
     optional: true
+
+  acorn@8.15.0: {}
+
+  astring@1.9.0: {}
 
   canonicalize@1.0.8:
     optional: true
@@ -898,6 +930,10 @@ snapshots:
 
   supports-preserve-symlinks-flag@1.0.0: {}
 
+  ts-blank-space@0.6.2:
+    dependencies:
+      typescript: 5.9.3
+
   typescript@5.9.3: {}
 
   undici-types@7.16.0: {}
@@ -915,3 +951,5 @@ snapshots:
     optional: true
 
   yallist@4.0.0: {}
+
+  zimmerframe@1.1.4: {}

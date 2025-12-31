@@ -1,2 +1,7 @@
+import { log } from './fee.js';
 
-console.log('Hello from foo');
+const fee = await import('./fee.js');
+
+log();
+fee.log();
+

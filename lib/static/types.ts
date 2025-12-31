@@ -43,7 +43,7 @@ export interface ReferenceParser {
   /**
    * Method to parse matching files to a dependancy graph.
    */
-  parse(filesByURL: Map<string, FileInfo>): Map<string, DependancyMap> | Promise<Map<string, DependancyMap>>;
+  parse(filesByURL: Map<string, FileInfo>): Promise<Map<string, DependancyMap>>;
 
   /**
    * Updates a file's embedded hyperlinks to point to
