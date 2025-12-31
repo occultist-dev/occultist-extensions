@@ -1,6 +1,4 @@
-import {readFile} from "node:fs/promises";
-import type {PolicyDirective, ReferenceDetails, ReferenceParser} from "./types.js";
-import {DependancyMap} from "./dependancy-graph.ts";
+import type {FilesByURL, PolicyDirective, ReferenceDetails, ReferenceParser} from "./types.js";
 import {type FileInfo} from "./file-info.ts";
 
 
@@ -24,34 +22,15 @@ export class CSSReferenceParser implements ReferenceParser {
 
   ruleRe: RegExp = ruleRe;
   urlRe: RegExp = urlRe;
-  contentTypes: string[] = ['text/css'];
+  supports = new Set(['text/css']);
   directives: PolicyDirectiveMap = defaultDirectives;
 
   constructor(args?: CSSReferenceParserArgs) {
     if (Array.isArray(args?.contentType)) {
-      this.contentTypes = args.contentType;
+      this.supports = new Set(args.contentType);
     } else if (args?.contentType != null) {
-      this.contentTypes = [args.contentType];
+      this.supports = new Set([args.contentType]);
     }
-  }
-
-  /**
-   * Reads the content of the given files where the content type is css, and all files referenced by
-   */
-  async parse(filesByURL: Map<string, FileInfo>): Promise<Map<string, DependancyMap>> {
-    let data: string;
-    let references: ReferenceDetails[];
-    let dependancyMap: Map<string, DependancyMap> = new Map();
-    
-    for (const [url, file] of filesByURL.entries()) {
-      if (!this.contentTypes.includes(file.contentType)) continue;
-
-      data = await readFile(file.absolutePath, 'utf-8');
-      references = this.parseReferences(url, data, filesByURL);
-      dependancyMap.set(file.alias, new DependancyMap(file, references));
-    }
-
-    return dependancyMap;
   }
 
   /**
@@ -59,20 +38,21 @@ export class CSSReferenceParser implements ReferenceParser {
    *
    * @param content Content of a css file.
    */
-  parseReferences(
-    base: string,
-    content: string,
-    filesByURL: Map<string, FileInfo>,
-  ): ReferenceDetails[] {
+  async parse(
+    content: Blob,
+    file: FileInfo,
+    filesByURL: FilesByURL,
+  ): Promise<ReferenceDetails[]> {
     let m1: RegExpExecArray | null;
     let m2: RegExpExecArray | null;
     let property: string;
     let url: string;
     let directive: PolicyDirective;
     const references: ReferenceDetails[] = [];
+    const text = await content.text();
 
     this.ruleRe.lastIndex = 0;
-    while ((m1 = this.ruleRe.exec(content))) {
+    while ((m1 = this.ruleRe.exec(text))) {
       property = m1[1] ?? m1[2];
       directive = this.directives[property];
 
@@ -80,7 +60,7 @@ export class CSSReferenceParser implements ReferenceParser {
 
       this.urlRe.lastIndex = 0;
       while ((m2 = this.urlRe.exec(m1[3]))) {
-        url = new URL(m2[1] ?? m2[2] ?? m2[3], base).toString();
+        url = new URL(m2[1] ?? m2[2] ?? m2[3], file.aliasURL).toString();
         
         references.push({
           url,
@@ -93,21 +73,25 @@ export class CSSReferenceParser implements ReferenceParser {
     return references;
   }
 
-  async update(base: string, content: Blob, filesByURL: Map<string, FileInfo>): Promise<Blob> {
+  async update(
+    content: Blob, 
+    file: FileInfo,
+    filesByURL: FilesByURL,
+  ): Promise<Blob> {
     const text = await content.text();
     const updated = text.replace(ruleRe, (match) => {
       return match.replace(urlRe, (...matches) => {
         const src = matches[1] ?? matches[2] ?? matches[3];
-        const url = new URL(src, base).toString();
-        const file = filesByURL.get(url);
+        const url = new URL(src, file.aliasURL).toString();
+        const ref = filesByURL.get(url);
 
-        if (file == null) return matches[0];
+        if (ref == null) return matches[0];
 
-        return `url(${file.url})`;
+        return `url(${ref.url})`;
       })
     })
 
-    return new Blob([updated], { type: 'text/css' });
+    return new Blob([updated], { type: file.contentType });
   }
 }
 

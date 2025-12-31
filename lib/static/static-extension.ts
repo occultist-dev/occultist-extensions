@@ -10,6 +10,7 @@ import type {Directory, ReferenceParser} from './types.ts';
 import {CSSReferenceParser} from './css-parser.ts';
 import {JSReferenceParser} from './js-parser.ts';
 import {HTMLParser} from './html-parser.ts';
+import {ref} from 'process';
 
 
 type ExtensionMap = Map<string, string>;
@@ -121,7 +122,7 @@ export class StaticExtension implements Extension, StaticExt {
     Object.freeze(this.#staticAliases);
 
     for (const parser of args.parsers ?? defaultParsers) {
-      for (const contentType of parser.contentTypes) {
+      for (const contentType of parser.supports.values()) {
         this.#parsers.set(contentType, parser);
       }
     }
@@ -247,10 +248,23 @@ export class StaticExtension implements Extension, StaticExt {
     for (const contentType of this.#extensions.values()) {
       const parser = this.#parsers.get(contentType);
 
-      if (parser != null) {
-        dependancyMaps.push(await parser.parse(this.#filesByURL));
+      if (parser == null) continue;
 
+      const files = this.#filesByContentType.get(contentType);
+
+      if (files == null) continue;
+
+      const dependancies: Map<string, DependancyMap> = new Map();
+
+      for (let i = 0; i < files.length; i++) {
+        let file = files[i];
+
+        const content = await readFile(file.absolutePath);
+        const references = await parser.parse(new Blob([content]), file, this.#filesByURL)
+        dependancies.set(file.alias, new DependancyMap(file, references));
       }
+
+      dependancyMaps.push(dependancies);
     }
 
     this.#dependancies = new DependancyGraph(
@@ -274,7 +288,7 @@ export class StaticExtension implements Extension, StaticExt {
         if (parser != null) {
           const content = await readFile(file.absolutePath);
 
-          ctx.body = await parser.update(file.aliasURL, new Blob([content]), this.#filesByURL);
+          ctx.body = await parser.update(new Blob([content]), file, this.#filesByURL);
         } else {
           ctx.body = Readable.toWeb(createReadStream(file.absolutePath)) as ReadableStream;
         }

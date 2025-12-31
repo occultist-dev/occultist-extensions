@@ -25,53 +25,40 @@ export type HTMLParserArgs = {
 };
 
 export class HTMLParser implements ReferenceParser {
-  contentTypes: string[] = [
+  supports: Set<string> = new Set([
     'text/html',
     'application/xhtml+xml',
-  ];
+  ]);
 
   constructor(args: HTMLParserArgs = {}) {
     if (Array.isArray(args?.contentType)) {
-      this.contentTypes = args.contentType;
+      this.supports = new Set(args.contentType);
     } else if (args?.contentType != null) {
-      this.contentTypes = [args.contentType];
+      this.supports = new Set([args.contentType]);
     }
   }
 
-  async parse(filesByURL: Map<string, FileInfo>): Promise<Map<string, DependancyMap>> {
-    let data: string;
-    let references: ReferenceDetails[];
-    let dependancyMap: Map<string, DependancyMap> = new Map();
-    
-    for (const [url, file] of filesByURL.entries()) {
-      if (!this.contentTypes.includes(file.contentType)) continue;
-
-      data = await readFile(file.absolutePath, 'utf-8');
-      references = this.parseReferences(url, data, filesByURL);
-      dependancyMap.set(file.alias, new DependancyMap(file, references));
-    }
-
-    return dependancyMap;
-  }
-
-  parseReferences(
-    base: string,
-    content: string,
+  async parse(
+    content: Blob,
+    file: FileInfo,
     filesByURL: Map<string, FileInfo>,
-  ): ReferenceDetails[] {
+  ): Promise<ReferenceDetails[]> {
     let references: ReferenceDetails[] = [];
     let src: string;
     let rel: string;
     let as: string;
     let url: string;
-    const dom = new JSDOM(content);
+    const text = await content.text();
+    const dom = new JSDOM(text, {
+      contentType: file.contentType,
+    });
     const document = dom.window.document;
 
     for (const element of document.querySelectorAll('link')) {
       src = element.getAttribute('src');
       rel = element.getAttribute('rel');
       as = element.getAttribute('as');
-      url = new URL(src, base).toString();
+      url = new URL(src, file.aliasURL).toString();
 
       if (rel === 'stylesheet') {
         references.push({
@@ -111,7 +98,7 @@ export class HTMLParser implements ReferenceParser {
         continue;
       }
 
-      url = new URL(src, base).toString();
+      url = new URL(src, file.aliasURL).toString();
 
       references.push({
         url,
@@ -132,7 +119,7 @@ export class HTMLParser implements ReferenceParser {
         continue;
       }
 
-      url = new URL(src, base).toString();
+      url = new URL(src, file.aliasURL).toString();
 
       references.push({
         url,
@@ -151,7 +138,7 @@ export class HTMLParser implements ReferenceParser {
         continue;
       }
 
-      url = new URL(src, base).toString();
+      url = new URL(src, file.aliasURL).toString();
 
       references.push({
         url,
@@ -167,7 +154,7 @@ export class HTMLParser implements ReferenceParser {
         continue;
       }
 
-      url = new URL(src, base).toString();
+      url = new URL(src, file.aliasURL).toString();
 
       references.push({
         url,
@@ -179,11 +166,17 @@ export class HTMLParser implements ReferenceParser {
     return references;
   }
 
-  async update(base: string, content: Blob, filesByURL: Map<string, FileInfo>): Promise<Blob> {
+  async update(
+    content: Blob,
+    file: FileInfo,
+    filesByURL: Map<string, FileInfo>,
+  ): Promise<Blob> {
     let url: string | undefined;
-    let file: FileInfo | undefined;
+    let ref: FileInfo | undefined;
     let text = await content.text();
-    const dom = new JSDOM(text);
+    const dom = new JSDOM(text, {
+      contentType: file.contentType,
+    });
     const document = dom.window.document;
 
     for (const element of [
@@ -203,12 +196,12 @@ export class HTMLParser implements ReferenceParser {
         continue;
       }
 
-      url = new URL(src, base).toString();
-      file = filesByURL.get(url);
+      url = new URL(src, file.aliasURL).toString();
+      ref = filesByURL.get(url);
 
-      if (file == null) continue;
+      if (ref == null) continue;
 
-      element.setAttribute('src', file.url);
+      element.setAttribute('src', ref.url);
     }
 
     for (const element of document.querySelectorAll('picture source')) {
@@ -218,15 +211,15 @@ export class HTMLParser implements ReferenceParser {
         continue;
       }
 
-      url = new URL(src, base).toString();
-      file = filesByURL.get(url);
+      url = new URL(src, file.aliasURL).toString();
+      ref = filesByURL.get(url);
 
-      if (file == null) continue;
+      if (ref == null) continue;
 
-      element.setAttribute('srcset', file.url);
+      element.setAttribute('srcset', ref.url);
     }
 
-    return new Blob([dom.serialize()], { type: 'text/html' });
+    return new Blob([dom.serialize()], { type: file.contentType });
   }
 
 }

@@ -2,6 +2,8 @@ import type {DependancyMap} from "./dependancy-graph.ts";
 import type {FileInfo} from "./file-info.ts";
 
 
+export type FilesByURL = Map<string, FileInfo>;
+
 export type PolicyDirective =
   | 'child-src'
   | 'connect-src'
@@ -32,27 +34,45 @@ export type ReferenceDetails = {
   directive?: PolicyDirective;
   file?: FileInfo;
 };
-
+  
+/**
+ * An object with methods for parsing URL references
+ * within supporting content types and then embedding
+ * URLs generated for the referenced static assets by
+ * the framework.
+ */
 export interface ReferenceParser {
 
   /**
-   * List of content types this parser can handle.
+   * A set of content types supported by this reference parser.
    */
-  contentTypes: string[];
+  readonly supports: Set<string>;
 
   /**
-   * Method to parse matching files to a dependancy graph.
+   * Parses URLs referenced in a file's content and
+   * returns a dependancy map of all references.
+   *
+   * @param content The file content to update.
+   * @param file File info object relating to the file.
+   * @returns A dependancy map of all references.
    */
-  parse(filesByURL: Map<string, FileInfo>): Promise<Map<string, DependancyMap>>;
-
+  parse(
+    content: Blob,
+    file: FileInfo,
+    filesByURL: FilesByURL,
+  ): Promise<ReferenceDetails[]>;
+  
   /**
    * Updates a file's embedded hyperlinks to point to
    * final URLs of other static content.
    *
-   * @param content The file content to update.
-   * @param dependancies The dependancy map of the file being processed.
+   * @param file File info object.
    * @returns content with URLs updated.
    */
-  update(base: string, content: Blob, filesByURL: Map<string, FileInfo>): Blob | Promise<Blob>
+  update(
+    content: Blob,
+    file: FileInfo,
+    filesByURL: FilesByURL,
+  ): Promise<Blob>;
 
 }

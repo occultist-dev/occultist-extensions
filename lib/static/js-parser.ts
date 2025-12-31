@@ -1,10 +1,8 @@
 import {parse, type ImportDeclaration, type ImportExpression, type Literal, type Node, type Options} from 'acorn';
 import {generate} from 'astring';
-import {readFile} from "fs/promises";
 import {walk} from 'zimmerframe';
-import {DependancyMap} from "./dependancy-graph.ts";
 import {type FileInfo} from "./file-info.ts";
-import {type ReferenceDetails, type ReferenceParser} from "./types.ts";
+import type {FilesByURL, ReferenceDetails, ReferenceParser} from "./types.ts";
 
 
 export type JSReferenceParserArgs = {
@@ -14,15 +12,15 @@ export type JSReferenceParserArgs = {
 
 export class JSReferenceParser implements ReferenceParser {
   
-  contentTypes: string[] = ['application/javascript'];
+  supports: Set<string> = new Set(['application/javascript']);
 
   #acornOptions: Options;
 
   constructor(args: JSReferenceParserArgs = {}) {
     if (Array.isArray(args?.contentType)) {
-      this.contentTypes = args.contentType;
+      this.supports = new Set(args.contentType);
     } else if (args?.contentType != null) {
-      this.contentTypes = [args.contentType];
+      this.supports = new Set([args.contentType]);
     }
 
     this.#acornOptions = args.acornOptions ?? {
@@ -31,34 +29,19 @@ export class JSReferenceParser implements ReferenceParser {
     };
   }
 
-  async parse(filesByURL: Map<string, FileInfo>): Promise<Map<string, DependancyMap>> {
-    let data: string;
-    let references: ReferenceDetails[];
-    let dependancyMap: Map<string, DependancyMap> = new Map();
-    
-    for (const [url, file] of filesByURL.entries()) {
-      if (!this.contentTypes.includes(file.contentType)) continue;
-
-      data = await readFile(file.absolutePath, 'utf-8');
-      references = this.parseReferences(url, data, filesByURL);
-      dependancyMap.set(file.alias, new DependancyMap(file, references));
-    }
-
-    return dependancyMap;
-  }
-
-  parseReferences(
-    base: string,
-    content: string,
-    filesByURL: Map<string, FileInfo>,
-  ): ReferenceDetails[] {
+  async parse(
+    content: Blob,
+    file: FileInfo,
+    filesByURL: FilesByURL,
+  ): Promise<ReferenceDetails[]> {
     let references: ReferenceDetails[] = [];
     let url: string;
-    const ast = parse(content, this.#acornOptions);
+    const text = await content.text();
+    const ast = parse(text, this.#acornOptions);
     
     walk(ast as Node, {}, {
       ImportDeclaration(node: ImportDeclaration, { next }) {
-        url = new URL((node.source as Literal).value as string, base).toString();
+        url = new URL((node.source as Literal).value as string, file.aliasURL).toString();
         
         references.push({
           url,
@@ -69,7 +52,7 @@ export class JSReferenceParser implements ReferenceParser {
         next();
       },
       ImportExpression(node: ImportExpression, { next }) {
-        url = new URL((node.source as Literal).value as string, base).toString();
+        url = new URL((node.source as Literal).value as string, file.aliasURL).toString();
         
         references.push({
           url,
@@ -85,40 +68,40 @@ export class JSReferenceParser implements ReferenceParser {
   }
 
   async update(
-    base: string,
     content: Blob,
+    file: FileInfo,
     filesByURL: Map<string, FileInfo>,
   ): Promise<Blob> {
     let url: string | undefined;
-    let file: FileInfo | undefined;
+    let ref: FileInfo | undefined;
     const text = await content.text();
     const ast = parse(text, this.#acornOptions);
     const updated = walk(ast as Node, {}, {
       ImportDeclaration(node: ImportDeclaration, { next }) {
-        url = new URL((node.source as Literal).value as string, base).toString();
-        file = filesByURL.get(url);
+        url = new URL((node.source as Literal).value as string, file.aliasURL).toString();
+        ref = filesByURL.get(url);
 
-        if (file == null) return;
+        if (ref == null) return;
 
         const source = node.source as Literal;
-        source.raw = '"' + encodeURI(file.url) + '"';
+        source.raw = '"' + encodeURI(ref.url) + '"';
 
         next();
       },
       ImportExpression(node: ImportExpression, { next }) {
-        url = new URL((node.source as Literal).value as string, base).toString();
-        file = filesByURL.get(url);
+        url = new URL((node.source as Literal).value as string, file.aliasURL).toString();
+        ref = filesByURL.get(url);
 
-        if (file == null) return;
+        if (ref == null) return;
 
         const source = node.source as Literal;
-        source.raw = '"' + encodeURI(file.url) + '"';
+        source.raw = '"' + encodeURI(ref.url) + '"';
 
         next();
       },
     });
     const serialized = generate(updated);
 
-    return new Blob([serialized], { type: 'application/javascript' });
+    return new Blob([serialized], { type: file.contentType });
   }
 }
