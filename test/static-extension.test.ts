@@ -13,8 +13,30 @@ const sampleDir: Directory = {
   path:  resolve(import.meta.dirname, 'sample'),
 };
 
+test('It preprocesses typescript files', {only: true}, async () => {
+  const registry = new Registry({
+    rootIRI: 'https://example.com',
+  });
 
-test('It parses HTML files', {only: true}, async () => {
+  const extension = new StaticExtension({
+    registry,
+    directories: [sampleDir],
+    prefix: '/static',
+  });
+  
+  await registry.setupExtensions();
+  const main = extension.getFile('sample/main.ts');
+  const foo = extension.getFile('sample/foo.js');
+  const fee = extension.getFile('sample/fee.js');
+
+  const res = await registry.handleRequest(
+    new Request(main.url)
+  );
+
+  console.log(await res.text());
+});
+
+test('It parses HTML files', async () => {
   const registry = new Registry({
     rootIRI: 'https://example.com',
   });

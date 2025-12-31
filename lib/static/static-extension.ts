@@ -6,11 +6,11 @@ import {join} from "path";
 import {Readable} from "stream";
 import {DependancyGraph, DependancyMap} from './dependancy-graph.ts';
 import {type FileInfo, WorkingFileInfo} from './file-info.ts';
-import type {Directory, ReferenceParser} from './types.ts';
+import type {Directory, ReferenceParser, ReferencePreprocessor} from './types.ts';
 import {CSSReferenceParser} from './css-parser.ts';
 import {JSReferenceParser} from './js-parser.ts';
 import {HTMLParser} from './html-parser.ts';
-import {ref} from 'process';
+import {TSReferencePreprocessor} from './ts-preprocessor.ts';
 
 
 type ExtensionMap = Map<string, string>;
@@ -30,6 +30,7 @@ export const defaultExtensions = {
   xhtml: 'application/xhtml+xml',
   xht: 'application/xhtml+xml',
   js: 'application/javascript',
+  ts: 'application/javascript',
   jpg: 'image/jpeg',
   png: 'image/png',
   woff: 'font/woff',
@@ -40,6 +41,10 @@ export const defaultParsers: ReferenceParser[] = [
   new HTMLParser(),
   new CSSReferenceParser(),
   new JSReferenceParser(),
+];
+
+export const defaultPreprocessors: ReferencePreprocessor[] = [
+  new TSReferencePreprocessor(),
 ];
 
 export const defaultCSPTypes = [
@@ -76,6 +81,11 @@ export type StaticExtensionArgs = {
   parsers?: ReferenceParser[];
 
   /**
+   *
+   */
+  preprocessors?: ReferencePreprocessor[];
+
+  /**
    * A path prefix where static assets should be served.
    */
   prefix?: string;
@@ -97,9 +107,11 @@ export class StaticExtension implements Extension, StaticExt {
   #staticAliases: string[] = [];
   #extensions: ExtensionMap;
   #parsers: Map<string, ReferenceParser> = new Map();
+  #preprocessors: Map<string, ReferencePreprocessor> = new Map();
   #prefix: string;
   #filesByAlias: FilesByAlias = new Map();
   #filesByURL: FilesByURL = new Map();
+  #filesByExtension: Map<string, FileInfo[]> = new Map();
   #filesByContentType: Map<string, FileInfo[]> = new Map();
   #hashes: HashMap = new Map();
   #actions: ActionMap = new Map();
@@ -124,6 +136,12 @@ export class StaticExtension implements Extension, StaticExt {
     for (const parser of args.parsers ?? defaultParsers) {
       for (const contentType of parser.supports.values()) {
         this.#parsers.set(contentType, parser);
+      }
+    }
+
+    for (const preprocessor of args.preprocessors ?? defaultPreprocessors) {
+      for (const extension of preprocessor.supports.values()) {
+        this.#preprocessors.set(extension, preprocessor);
       }
     }
   }
@@ -234,10 +252,15 @@ export class StaticExtension implements Extension, StaticExt {
       this.#filesByAlias.set(file.alias, file);
       this.#filesByURL.set(aliasURL, file);
       
+      if (!this.#filesByExtension.has(file.extension)) {
+        this.#filesByExtension.set(file.extension, []);
+      }
+      
       if (!this.#filesByContentType.has(file.contentType)) {
         this.#filesByContentType.set(file.contentType, []);
       }
 
+      this.#filesByExtension.get(file.extension).push(file);
       this.#filesByContentType.get(file.contentType).push(file);
     }
     
@@ -245,7 +268,29 @@ export class StaticExtension implements Extension, StaticExt {
 
     writer.write('Building dependancy tree');
 
-    for (const contentType of this.#extensions.values()) {
+    for (const [extension, contentType] of this.#extensions.entries()) {
+      const preprocessor = this.#preprocessors.get(extension);
+
+      if (preprocessor != null) {
+        const files = this.#filesByExtension.get(extension);
+
+        if (files == null) continue;
+
+        const dependancies: Map<string, DependancyMap> = new Map();
+
+        for (let i = 0; i < files.length; i++) {
+          let file = files[i];
+
+          const content = await readFile(file.absolutePath);
+          const references = await preprocessor.parse(new Blob([content]), file, this.#filesByURL);
+
+          dependancies.set(file.alias, new DependancyMap(file, references));
+        }
+
+        dependancyMaps.push(dependancies);
+        continue;
+      }
+
       const parser = this.#parsers.get(contentType);
 
       if (parser == null) continue;
@@ -273,6 +318,7 @@ export class StaticExtension implements Extension, StaticExt {
 
     writer.write('Registering actions');
     for (const [name, file] of this.#filesByAlias.entries()) {
+      const preprocessor = this.#preprocessors.get(file.extension);
       const parser = this.#parsers.get(file.contentType);
       const parts = name.split('/');
       const friendly = parts[parts.length - 1].split('.')[0];
@@ -285,7 +331,11 @@ export class StaticExtension implements Extension, StaticExt {
       }
 
       const implemented = action.handle(file.contentType, async (ctx) => {
-        if (parser != null) {
+        if (preprocessor != null) {
+          const content = await readFile(file.absolutePath);
+
+          ctx.body = await preprocessor.process(new Blob([content]), file, this.#filesByURL);
+        } else if (parser != null) {
           const content = await readFile(file.absolutePath);
 
           ctx.body = await parser.update(new Blob([content]), file, this.#filesByURL);

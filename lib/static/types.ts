@@ -76,3 +76,45 @@ export interface ReferenceParser {
   ): Promise<Blob>;
 
 }
+
+export interface ReferencePreprocessor {
+
+  /**
+   * A set of content types supported by this reference parser.
+   */
+  readonly supports: Set<string>;
+
+  /**
+   * Content type the pre-processor outputs.
+   */
+  readonly output: string;
+
+  /**
+   * Parses URLs referenced in a file's content and
+   * returns a dependancy map of all references.
+   *
+   * @param content The file content to update.
+   * @param file File info object relating to the file.
+   * @returns A dependancy map of all references.
+   */
+  parse(
+    content: Blob,
+    file: FileInfo,
+    filesByURL: FilesByURL,
+  ): Promise<ReferenceDetails[]>;
+  
+  /**
+   * Updates a file's embedded hyperlinks to point to
+   * final URLs of other static content.
+   *
+   * @param file File info object.
+   * @returns content with URLs updated.
+   */
+  process(
+    content: Blob,
+    file: FileInfo,
+    filesByURL: FilesByURL,
+  ): Promise<Blob>;
+
+}
+
