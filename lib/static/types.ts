@@ -29,7 +29,7 @@ export type Directory = {
 
 export type ReferenceDetails = {
   url: string;
-  directive: PolicyDirective;
+  directive?: PolicyDirective;
   file?: FileInfo;
 };
 

@@ -9,6 +9,7 @@ import {type FileInfo, WorkingFileInfo} from './file-info.ts';
 import type {Directory, ReferenceParser} from './types.ts';
 import {CSSReferenceParser} from './css-parser.ts';
 import {JSReferenceParser} from './js-parser.ts';
+import {HTMLParser} from './html-parser.ts';
 
 
 type ExtensionMap = Map<string, string>;
@@ -35,6 +36,7 @@ export const defaultExtensions = {
 } as const;
 
 export const defaultParsers: ReferenceParser[] = [
+  new HTMLParser(),
   new CSSReferenceParser(),
   new JSReferenceParser(),
 ];

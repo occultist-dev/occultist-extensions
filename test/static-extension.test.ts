@@ -14,7 +14,30 @@ const sampleDir: Directory = {
 };
 
 
-test('It parses javascript files', {only: true}, async () => {
+test('It parses HTML files', {only: true}, async () => {
+  const registry = new Registry({
+    rootIRI: 'https://example.com',
+  });
+
+  const extension = new StaticExtension({
+    registry,
+    directories: [sampleDir],
+    prefix: '/static',
+  });
+  
+  await registry.setupExtensions();
+  const html = extension.getFile('sample/index.en.html');
+  const foo = extension.getFile('sample/foo.js');
+  const fee = extension.getFile('sample/fee.js');
+
+  const res = await registry.handleRequest(
+    new Request(html.url)
+  );
+
+  console.log(await res.text());
+});
+
+test('It parses javascript files', async () => {
   const registry = new Registry({
     rootIRI: 'https://example.com',
   });

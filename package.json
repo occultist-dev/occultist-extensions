@@ -35,6 +35,7 @@
     "@longform/longform": "^0.0.6",
     "@octiron/octiron": "^0.0.7",
     "@rollup/plugin-typescript": "^12.3.0",
+    "@types/jsdom": "^27.0.0",
     "@types/node": "^24.10.1",
     "esbuild": "^0.27.0",
     "json-ptr": "^3.1.1",
@@ -47,6 +48,7 @@
     "@occultist/occultist": "^0.0.11",
     "acorn": "^8.15.0",
     "astring": "^1.9.0",
+    "jsdom": "^27.4.0",
     "ts-blank-space": "^0.6.2",
     "zimmerframe": "^1.1.4"
   }

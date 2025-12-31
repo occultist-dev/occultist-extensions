@@ -1,10 +1,10 @@
-import {type Literal, parse, type ImportDeclaration, type ImportExpression, type Node, type Options} from 'acorn';
+import {parse, type ImportDeclaration, type ImportExpression, type Literal, type Node, type Options} from 'acorn';
+import {generate} from 'astring';
 import {readFile} from "fs/promises";
 import {walk} from 'zimmerframe';
 import {DependancyMap} from "./dependancy-graph.ts";
 import {type FileInfo} from "./file-info.ts";
 import {type ReferenceDetails, type ReferenceParser} from "./types.ts";
-import {generate} from 'astring';
 
 
 export type JSReferenceParserArgs = {
