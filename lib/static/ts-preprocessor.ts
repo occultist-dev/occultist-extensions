@@ -2,6 +2,7 @@ import {createPrinter, createSourceFile, factory, forEachChild, isCallExpression
 import {type FileInfo} from './file-info.ts';
 import type {FilesByURL, ReferenceDetails, ReferencePreprocessor} from './types.ts';
 
+
 export class TSReferencePreprocessor implements ReferencePreprocessor {
 
   supports: Set<string> = new Set(['ts', 'mts', 'cts']);
@@ -60,7 +61,7 @@ export class TSReferencePreprocessor implements ReferencePreprocessor {
       ScriptTarget.ES2022,
       true,
     );
-    const transformerFactory: TransformerFactory<SourceFile> = (context) => {
+    const transformerFactory: TransformerFactory<Node> = (context) => {
       function visitor(node: Node) {
         if (isImportDeclaration(node) && node.moduleSpecifier) {
           const path = (node.moduleSpecifier as StringLiteral).text;
