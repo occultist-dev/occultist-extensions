@@ -4,13 +4,22 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@octiron/octiron': link:../octiron
+
 importers:
 
   .:
     dependencies:
+      '@longform/longform':
+        specifier: ^0.0.6
+        version: 0.0.6
       '@occultist/occultist':
         specifier: ^0.0.11
         version: 0.0.11(json-ptr@3.1.1)(jsonld@9.0.0)
+      '@octiron/octiron':
+        specifier: link:../octiron
+        version: link:../octiron
       acorn:
         specifier: ^8.15.0
         version: 8.15.0
@@ -20,6 +29,15 @@ importers:
       jsdom:
         specifier: ^27.4.0
         version: 27.4.0
+      jsonld:
+        specifier: ^9.0.0
+        version: 9.0.0
+      mithril:
+        specifier: ^2.3.8
+        version: 2.3.8
+      mithril-node-render:
+        specifier: ^3.0.2
+        version: 3.0.2(mithril@2.3.8)
       source-map:
         specifier: ^0.7.6
         version: 0.7.6
@@ -39,6 +57,9 @@ importers:
       '@types/jsdom':
         specifier: ^27.0.0
         version: 27.0.0
+      '@types/jsonld':
+        specifier: ^1.5.15
+        version: 1.5.15
       '@types/node':
         specifier: ^24.10.1
         version: 24.10.4
@@ -102,6 +123,9 @@ packages:
       '@exodus/crypto':
         optional: true
 
+  '@longform/longform@0.0.6':
+    resolution: {integrity: sha512-f/bBuiabtGazSfX1gYcu3eKNLggWoF/daZh6pWNvrHWRHmXo4s9/vAqlCBUUYqcbrfnziXg+BC5v0vG9JlVXeA==}
+
   '@occultist/occultist@0.0.11':
     resolution: {integrity: sha512-iqm7yeMov6Hzg8ocst9mftqgWzxs4KZaPCWKH7nT4EZgtWLPenQvZoNvITbFYMxlynY7mL5zstK8mhEv/2y9+w==}
     peerDependencies:
@@ -113,6 +137,9 @@ packages:
 
   '@types/jsdom@27.0.0':
     resolution: {integrity: sha512-NZyFl/PViwKzdEkQg96gtnB8wm+1ljhdDay9ahn4hgb+SfVtPCbm3TlmDUFXTA+MGN3CijicnMhG18SI5H3rFw==}
+
+  '@types/jsonld@1.5.15':
+    resolution: {integrity: sha512-PlAFPZjL+AuGYmwlqwKEL0IMP8M8RexH0NIPGfCVWSQ041H2rR/8OlyZSD7KsCVoN8vCfWdtWDBxX8yBVP+xow==}
 
   '@types/node@24.10.4':
     resolution: {integrity: sha512-vnDVpYPMzs4wunl27jHrfmwojOGKya0xyM3sH+UE5iv5uPS6vX7UIoh6m+vQc5LGBq52HBKPIn/zcSZVzeDEZg==}
@@ -213,6 +240,14 @@ packages:
 
   mdn-data@2.12.2:
     resolution: {integrity: sha512-IEn+pegP1aManZuckezWCO+XZQDplx1366JoVhTpMpBB1sPey/SbveZQUosKiKiGYjg1wH4pMlNgXbCiYgihQA==}
+
+  mithril-node-render@3.0.2:
+    resolution: {integrity: sha512-8GZfFWW7h1YjO8s9fe+vHpWG3zacGIytQ/FBKxlynHlwknp1KLRHM6MtrtbMy72dVdQOiYw7wyfZXD0IrvpQOQ==}
+    peerDependencies:
+      mithril: ^2.0.4
+
+  mithril@2.3.8:
+    resolution: {integrity: sha512-za/Yo7qXEckjm5syrSfaaI9Utf4tCUT3T1IOIYqH6Lrj7G0OZuYYLAY9SV4ygoaAf0+CNqU92MBt+7pmo53JVQ==}
 
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
@@ -376,6 +411,8 @@ snapshots:
 
   '@exodus/bytes@1.7.0': {}
 
+  '@longform/longform@0.0.6': {}
+
   '@occultist/occultist@0.0.11(json-ptr@3.1.1)(jsonld@9.0.0)':
     dependencies:
       json-ptr: 3.1.1
@@ -388,6 +425,8 @@ snapshots:
       '@types/node': 24.10.4
       '@types/tough-cookie': 4.0.5
       parse5: 7.3.0
+
+  '@types/jsonld@1.5.15': {}
 
   '@types/node@24.10.4':
     dependencies:
@@ -499,6 +538,12 @@ snapshots:
       yallist: 4.0.0
 
   mdn-data@2.12.2: {}
+
+  mithril-node-render@3.0.2(mithril@2.3.8):
+    dependencies:
+      mithril: 2.3.8
+
+  mithril@2.3.8: {}
 
   ms@2.1.3: {}
 

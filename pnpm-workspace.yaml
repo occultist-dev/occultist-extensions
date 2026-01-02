@@ -1,1 +1,4 @@
+overrides:
+  '@octiron/octiron': link:../octiron
+
 useNodeVersion: 24.12.0

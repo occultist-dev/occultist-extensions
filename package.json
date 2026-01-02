@@ -34,14 +34,20 @@
   "devDependencies": {
     "@types/estree": "^1.0.8",
     "@types/jsdom": "^27.0.0",
+    "@types/jsonld": "^1.5.15",
     "@types/node": "^24.10.1"
   },
   "version": "0.0.2",
   "dependencies": {
+    "@longform/longform": "^0.0.6",
     "@occultist/occultist": "^0.0.11",
+    "@octiron/octiron": "link:../octiron",
     "acorn": "^8.15.0",
     "astring": "^1.9.0",
     "jsdom": "^27.4.0",
+    "jsonld": "^9.0.0",
+    "mithril": "^2.3.8",
+    "mithril-node-render": "^3.0.2",
     "source-map": "^0.7.6",
     "ts-blank-space": "^0.6.2",
     "typescript": "^5.9.3",

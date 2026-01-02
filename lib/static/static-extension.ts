@@ -29,6 +29,8 @@ export const defaultExtensions = {
   css: 'text/css',
   xhtml: 'application/xhtml+xml',
   xht: 'application/xhtml+xml',
+  xml: 'application/xml',
+  json: 'application/json',
   js: 'application/javascript',
   ts: 'application/javascript',
   jpg: 'image/jpeg',
