@@ -1,10 +1,10 @@
 import { longform, type ParsedResult } from '@longform/longform';
 import m from 'mithril';
 import render from 'mithril-node-render';
-import {type StaticExtension, type Extension, type Registry, type HandlerArgs, type ContextState, type Context} from "@occultist/occultist";
+import {type StaticExtension, type Extension, type Registry, type HandlerArgs, type ContextState, type Context, ImplementedAction} from "@occultist/occultist";
 import {readFile} from 'fs/promises';
 import {resolve} from 'path';
-import {CommonOctironArgs, type SSRView} from './types.ts';
+import {CommonOctironArgs, SSRModule, type SSRView} from './types.ts';
 import {compact, expand} from 'jsonld';
 import {type RemoteDocument} from 'jsonld/jsonld-spec.js';
 import {JSONLDHandler, JSONObject, JSONValue, longformHandler, octiron, type Fetcher, type ResponseHook} from '@octiron/octiron';
@@ -33,52 +33,55 @@ html::
   body::
 `;
 
-export type RenderStyle =
-  | 'empty'
-  | 'ssr'
-  | 'minimal'
-  | 'jit'
-;
 
-export type RenderGroup = {
-  name: string;
+export type RenderGroup<
+  Name extends string = string,
+> = {
+  name: Name;
   layout?: string;
-  renderStyle: RenderStyle;
 }
 
-export type DevExtensionArgs = {
+export type DevExtensionArgs<
+  GroupName extends string = string,
+> = {
   registry: Registry;
   staticExtension: StaticExtension;
+  scripts?: string[];
+  styles?: string[];
   layout?: string;
-  renderStyle?: RenderStyle;
   configFile: string;
-  groups: RenderGroup[];
+  groups: RenderGroup<GroupName>[];
   layoutsDir: string;
   pagesDir: string;
 };
 
 export class DevExtension<
   State extends ContextState = ContextState,
+  GroupName extends string = string,
 > implements Extension {
 
   name: string = 'dev';
   
   #registry: Registry;
+  #staticExtension: StaticExtension;
   #configFile: string;
   #octironArgs: CommonOctironArgs;
-  #renderStyle: RenderStyle;
   #layout?: string;
-  #groups: RenderGroup[];
-  #groupByName: Map<string, RenderGroup> = new Map();
+  #groups: RenderGroup<GroupName>[];
+  #groupByName: Map<string, RenderGroup<GroupName>> = new Map();
   #layoutsDir: string;
   #pagesDir: string;
   #defaultLayout?: ParsedResult;
   #layouts: Map<string, ParsedResult>;
+  #headContent: string;
+  #headContents: Map<string, string> = new Map();
+  #styles: Map<string, ImplementedAction>;
+  #scripts: Map<string, ImplementedAction>;
 
-  constructor(args: DevExtensionArgs) {
+  constructor(args: DevExtensionArgs<GroupName>) {
     this.#configFile = args.configFile;
     this.#registry = args.registry;
-    this.#renderStyle = args.renderStyle ?? 'ssr';
+    this.#staticExtension = args.staticExtension;
 
     this.#layout = args.layout;
     this.#layoutsDir = args.layoutsDir;
@@ -134,24 +137,57 @@ export class DevExtension<
     writable.close();
   }
 
-  handlePage(pagePath: string, renderGroup?: string): HandlerArgs<State> {
-    let layout
+  /**
+   * Loads module for a page and its render group.
+   *
+   * Modules can be in javascript or typescript and are located in
+   * the pages directory.
+   */
+  async loadModule(pagePath: string): Promise<SSRModule> {
+    const [jsMod, tsMod] = await Promise.allSettled([
+      import(resolve(this.#pagesDir, pagePath + '.ts')),
+      import(resolve(this.#pagesDir, pagePath + '.js')),
+    ]);
 
+    const mod: SSRModule = tsMod.status === 'fulfilled'
+      ? tsMod.value
+      : jsMod.status === 'fulfilled'
+      ? jsMod.value
+      : undefined;
+
+    if (mod == null) throw new Error('Module for page "' + pagePath + '" not found');
+
+    return mod;
+  }
+
+  /**
+   * Uses the framework extension to render a HTML page.
+   *
+   * @param pagePath Path relating to the pages directory for the
+   *   Typescript or Javascript module which exposes the render views.
+   * @param renderGroup An optional render group that this page belongs
+   *   to, allowing client side navigation and state presivation between
+   *   pages in the group.
+   */
+  handlePage(pagePath: string, renderGroup?: GroupName): HandlerArgs<State> {
     return {
       contentType: 'text/html',
       meta: {
         [pagePathSym]: pagePath,
         [renderGroupSym]: renderGroup,
       },
-      handler: (ctx) => this.renderPage(pagePath, renderGroup, ctx),
+      handler: (ctx) => this.renderPage(ctx, pagePath, renderGroup),
     };
   }
 
-  onBeforeFinalize = () => {
-    
-  };
-
-  async renderPage(ctx: Context, pagePath: string, renderGroup?: string): Promise<void> {
+  /**
+   * Renderers a SSR page, adding the result and any returned HTTP status
+   * to the request handler's context.
+   *
+   * @param ctx The handler's request context.
+   * @param pagePath Absolute path to the 
+   */
+  async renderPage(ctx: Context, pagePath: string, renderGroup?: GroupName): Promise<void> {
     const layout = renderGroup == null
       ? this.#defaultLayout
       : this.#layouts.get(renderGroup);

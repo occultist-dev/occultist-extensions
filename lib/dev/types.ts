@@ -23,3 +23,5 @@ export type SSRViewArgs<
 export type SSRView<
   State extends SSRViewState = SSRViewState,
 > = (args: SSRViewArgs<State>) => Children;
+
+export type SSRModule = Record<string, SSRView>;

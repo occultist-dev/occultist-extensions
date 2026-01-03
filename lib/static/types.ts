@@ -24,7 +24,12 @@ export type PolicyDirective =
   | 'worker-src'
 ;
 
-export type Directory = {
+export type StaticFile = {
+  alias: string;
+  path: string;
+};
+
+export type StaticDirectory = {
   alias: string;
   path: string;
 };

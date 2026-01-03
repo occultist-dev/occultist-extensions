@@ -6,7 +6,7 @@ import {join} from "path";
 import {Readable} from "stream";
 import {DependancyGraph, DependancyMap} from './dependancy-graph.ts';
 import {type FileInfo, WorkingFileInfo} from './file-info.ts';
-import type {Directory, ReferenceParser, ReferencePreprocessor} from './types.ts';
+import type {StaticDirectory, StaticFile, ReferenceParser, ReferencePreprocessor} from './types.ts';
 import {CSSReferenceParser} from './css-parser.ts';
 import {JSReferenceParser} from './js-parser.ts';
 import {HTMLParser} from './html-parser.ts';
@@ -67,9 +67,14 @@ export type StaticExtensionArgs = {
   cache?: Cache;
 
   /**
+   * Files to serve as static content.
+   */
+  files?: StaticFile[];
+
+  /**
    * Directories to serve as static content.
    */ 
-  directories: Directory[];
+  directories?: StaticDirectory[];
 
   /**
    * A javascript object mapping file extensions
@@ -105,7 +110,8 @@ export class StaticExtension implements Extension, StaticExt {
   #loaded: boolean = false;
   #registry: Registry;
   #cache: Cache | undefined;
-  #directories: Directory[];
+  #files: StaticFile[];
+  #directories: StaticDirectory[];
   #staticAliases: string[] = [];
   #extensions: ExtensionMap;
   #parsers: Map<string, ReferenceParser> = new Map();
@@ -122,7 +128,8 @@ export class StaticExtension implements Extension, StaticExt {
   constructor(args: StaticExtensionArgs) {
     this.#registry = args.registry;
     this.#cache = args.cache;
-    this.#directories = args.directories;
+    this.#files = args.files ?? [];
+    this.#directories = args.directories ?? [];
     this.#extensions = new Map(Object.entries(args.extensions ?? defaultExtensions)) as ExtensionMap;
     this.#prefix = args.prefix ?? '/';
 
@@ -230,11 +237,18 @@ export class StaticExtension implements Extension, StaticExt {
   async #load(writer: WritableStreamDefaultWriter): Promise<void> {
     writer.write('Gathering files');
 
+    let file: WorkingFileInfo;
+    
+    for (let i = 0; i < this.#files.length; i++) {
+      file = this.#staticFileToFileInfo(this.#files[i]);
+
+      this.#filesByAlias.set(file.alias, file);
+    }
+
     for await (const file of this.#traverse(this.#directories)) {
       this.#filesByAlias.set(file.alias, file);
     }
 
-    let file: WorkingFileInfo;
     const files = Array.from(this.#filesByAlias.values());
 
     writer.write('Generating hashes');
@@ -357,13 +371,34 @@ export class StaticExtension implements Extension, StaticExt {
 
   #traverseRe = /.(?:\.(?<lang>[a-zA-Z\-]+))?(?:\.(?<extension>[a-zA-Z0-9]+))$/;
 
+  #staticFileToFileInfo(file: StaticFile): WorkingFileInfo {
+    const parts = file.split(file.path);
+    const alias = file.alias;
+    const absolutePath = file.path;
+    const name = parts[parts.length - 1];
+    const relativePath = name;
+    const match = this.#traverseRe.exec(name);
+    const { lang, extension } = match?.groups ?? {};
+    const contentType = this.#extensions.get(extension);
+
+    return new WorkingFileInfo(
+      name,
+      alias,
+      relativePath,
+      absolutePath,
+      extension,
+      contentType,
+      lang,
+    );
+  }
+
   /**
    * Traverses into a list of directories outputting a file info object for every file
    * of a configured file extension.
    *
    * @param directories The directories to traverse into.
    */
-  async* #traverse(directories: Directory[], root: string = ''): AsyncGenerator<WorkingFileInfo, void, unknown> {
+  async* #traverse(directories: StaticDirectory[], root: string = ''): AsyncGenerator<WorkingFileInfo, void, unknown> {
     for (let i = 0; i < directories.length; i++) {
       const dir = await opendir(directories[i].path);
 
