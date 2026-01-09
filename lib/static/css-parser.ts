@@ -1,5 +1,7 @@
-import type {FilesByURL, PolicyDirective, ReferenceDetails, ReferenceParser} from "./types.js";
+import type {FilesByAlias, FilesByURL, PolicyDirective, ReferenceDetails, ReferenceParser} from "./types.js";
 import {type FileInfo} from "./file-info.ts";
+import {referencedFile} from './referenced-file.ts';
+import {referencedDependancy} from "./referenceURL.ts";
 
 
 type PolicyDirectiveMap = Record<string, PolicyDirective>;
@@ -42,6 +44,7 @@ export class CSSReferenceParser implements ReferenceParser {
     content: Blob,
     file: FileInfo,
     filesByURL: FilesByURL,
+    filesByAlias: FilesByAlias,
   ): Promise<ReferenceDetails[]> {
     let m1: RegExpExecArray | null;
     let m2: RegExpExecArray | null;
@@ -61,12 +64,14 @@ export class CSSReferenceParser implements ReferenceParser {
       this.urlRe.lastIndex = 0;
       while ((m2 = this.urlRe.exec(m1[3]))) {
         url = new URL(m2[1] ?? m2[2] ?? m2[3], file.aliasURL).toString();
-        
-        references.push({
+
+        references.push(referencedDependancy(
           url,
+          file,
+          filesByURL,
+          filesByAlias,
           directive,
-          file: filesByURL.get(url),
-        });
+        ));
       }
     }
 
@@ -77,13 +82,13 @@ export class CSSReferenceParser implements ReferenceParser {
     content: Blob, 
     file: FileInfo,
     filesByURL: FilesByURL,
+    filesByAlias: FilesByAlias,
   ): Promise<Blob> {
     const text = await content.text();
     const updated = text.replace(ruleRe, (match) => {
       return match.replace(urlRe, (...matches) => {
         const src = matches[1] ?? matches[2] ?? matches[3];
-        const url = new URL(src, file.aliasURL).toString();
-        const ref = filesByURL.get(url);
+        const ref = referencedFile(src, file, filesByURL, filesByAlias);
 
         if (ref == null) return matches[0];
 

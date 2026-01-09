@@ -1,14 +1,15 @@
-import { longform, type ParsedResult } from '@longform/longform';
+import {longform, type ParsedResult} from '@longform/longform';
+import {ActionSpec, AuthState, ImplementedAction, type Context, type ContextState, type Extension, type HandlerArgs, type Registry, type StaticAssetExtension} from "@occultist/occultist";
+import {JSONLDHandler, JSONObject, longformHandler, octiron, StoreArgs, type Fetcher, type ResponseHook} from '@octiron/octiron';
+import {readFile} from 'fs/promises';
+import jsonld from 'jsonld';
+import {type RemoteDocument} from 'jsonld/jsonld-spec.js';
 import m from 'mithril';
 import render from 'mithril-node-render';
-import {type StaticExtension, type Extension, type Registry, type HandlerArgs, type ContextState, type Context, ImplementedAction} from "@occultist/occultist";
-import {readFile} from 'fs/promises';
 import {resolve} from 'path';
 import {CommonOctironArgs, SSRModule, type SSRView} from './types.ts';
-import {compact, expand} from 'jsonld';
-import {type RemoteDocument} from 'jsonld/jsonld-spec.js';
-import {JSONLDHandler, JSONObject, JSONValue, longformHandler, octiron, type Fetcher, type ResponseHook} from '@octiron/octiron';
-import {Parser} from 'acorn';
+import {register} from 'module';
+
 
 
 /**
@@ -39,32 +40,33 @@ export type RenderGroup<
 > = {
   name: Name;
   layout?: string;
+  
 }
 
-export type DevExtensionArgs<
+export type DotDevExtensionArgs<
   GroupName extends string = string,
 > = {
+  vocab?: StoreArgs['vocab'];
+  aliases?: StoreArgs['aliases'];
+  acceptMap?: StoreArgs['acceptMap'];
   registry: Registry;
-  staticExtension: StaticExtension;
+  staticExtension: StaticAssetExtension;
   scripts?: string[];
   styles?: string[];
   layout?: string;
-  configFile: string;
-  groups: RenderGroup<GroupName>[];
+  groups?: RenderGroup<GroupName>[];
   layoutsDir: string;
   pagesDir: string;
 };
 
-export class DevExtension<
-  State extends ContextState = ContextState,
+export class DotDevExtension<
   GroupName extends string = string,
 > implements Extension {
 
   name: string = 'dev';
   
   #registry: Registry;
-  #staticExtension: StaticExtension;
-  #configFile: string;
+  #staticExtension: StaticAssetExtension;
   #octironArgs: CommonOctironArgs;
   #layout?: string;
   #groups: RenderGroup<GroupName>[];
@@ -78,8 +80,7 @@ export class DevExtension<
   #styles: Map<string, ImplementedAction>;
   #scripts: Map<string, ImplementedAction>;
 
-  constructor(args: DevExtensionArgs<GroupName>) {
-    this.#configFile = args.configFile;
+  constructor(args: DotDevExtensionArgs<GroupName>) {
     this.#registry = args.registry;
     this.#staticExtension = args.staticExtension;
 
@@ -87,12 +88,19 @@ export class DevExtension<
     this.#layoutsDir = args.layoutsDir;
     this.#pagesDir = args.pagesDir;
     this.#groups = args.groups ?? [];
+    this.#octironArgs = {
+      rootIRI: args.registry.rootIRI,
+      vocab: args.vocab,
+      aliases: args.aliases,
+      acceptMap: args.acceptMap,
+    };
 
     for (let i = 0; i < this.#groups.length; i++) {
       this.#groupByName.set(this.#groups[i].name, this.#groups[i]);
     }
 
-    this.#registry.addEventListener('beforefinalize', this.onBeforeFinalize);
+    this.#registry.registerExtension(this);
+    //this.#registry.addEventListener('beforefinalize', this.onBeforeFinalize);
   }
 
   setup(): ReadableStream {
@@ -106,15 +114,18 @@ export class DevExtension<
   async #setup(writable: WritableStream): Promise<void> {
     const writer = writable.getWriter();
 
-    writer.write('Reading Octiron config file "' + this.#configFile + '"');
-    const config = await import(this.#configFile);
-    
-    this.#octironArgs = config.default;
-
     writer.write('Compiling longform layouts');
-    const path = resolve(this.#layoutsDir, this.#layout);
-    const layout = await readFile(path, 'utf-8') ?? defaultLayoutContent;
+    let layout: string;
+
+    if (this.#layoutsDir != null && this.#layout != null) {
+      const path = resolve(this.#layoutsDir, this.#layout);
+      layout = await readFile(path, 'utf-8');
+    } else {
+      layout = defaultLayoutContent;
+    }
     const defaultLayout = longform(layout);
+
+    console.log('DEF LAY', defaultLayout);
 
     this.#defaultLayout = defaultLayout;
                                       
@@ -133,7 +144,7 @@ export class DevExtension<
     }
 
     writer.write('Done');
-
+    writer.releaseLock();
     writable.close();
   }
 
@@ -144,6 +155,11 @@ export class DevExtension<
    * the pages directory.
    */
   async loadModule(pagePath: string): Promise<SSRModule> {
+    const tsFile = resolve(this.#pagesDir, pagePath + '.ts');
+    const jsFile = resolve(this.#pagesDir, pagePath + '.js');
+
+    console.log(tsFile);
+
     const [jsMod, tsMod] = await Promise.allSettled([
       import(resolve(this.#pagesDir, pagePath + '.ts')),
       import(resolve(this.#pagesDir, pagePath + '.js')),
@@ -154,6 +170,8 @@ export class DevExtension<
       : jsMod.status === 'fulfilled'
       ? jsMod.value
       : undefined;
+      
+    console.log('MOD', mod);
 
     if (mod == null) throw new Error('Module for page "' + pagePath + '" not found');
 
@@ -161,7 +179,7 @@ export class DevExtension<
   }
 
   /**
-   * Uses the framework extension to render a HTML page.
+   * Uses the DotDev extension to render a HTML page.
    *
    * @param pagePath Path relating to the pages directory for the
    *   Typescript or Javascript module which exposes the render views.
@@ -169,7 +187,15 @@ export class DevExtension<
    *   to, allowing client side navigation and state presivation between
    *   pages in the group.
    */
-  handlePage(pagePath: string, renderGroup?: GroupName): HandlerArgs<State> {
+  handlePage<
+    State extends ContextState = ContextState,
+    Auth extends AuthState = AuthState,
+    Spec extends ActionSpec = ActionSpec,
+  >(pagePath: string, renderGroup?: GroupName): HandlerArgs<
+    State,
+    Auth,
+    Spec
+  > {
     return {
       contentType: 'text/html',
       meta: {
@@ -190,23 +216,31 @@ export class DevExtension<
   async renderPage(ctx: Context, pagePath: string, renderGroup?: GroupName): Promise<void> {
     const layout = renderGroup == null
       ? this.#defaultLayout
-      : this.#layouts.get(renderGroup);
+      : this.#layouts.get(renderGroup) ?? this.#defaultLayout;
+
+      console.log('LAYOUT', layout);
 
     if (layout == null || !layout.mountable) return;
 
-    const mod = await import(resolve(this.#pagesDir, pagePath));
+    const mod = await this.loadModule(pagePath);
     
+    await this.#renderPage(
+      ctx,
+      layout,
+      mod,
+      '',
+    );
   }
 
-  async renderLayout(
+  async #renderPage(
     ctx: Context,
     layout: ParsedResult,
     mod: Record<string, SSRView>,
     headContent: string = '',
   ): Promise<void> {
-    let html: string = '';
+    let html = '';
     let count = 0;
-    let currentLenght = 0;
+    let currentLength = 0;
     const location = new URL(ctx.url);
     const responses: Array<Promise<Response>> = [];
     const renderedMountPoints: string[] = [];
@@ -230,9 +264,9 @@ export class DevExtension<
 
     async function renderDOM(component: m.ComponentTypes): Promise<string> {
       do {
-        let loopLength = currentLenght = responses.length;
+        let loopLength = currentLength = responses.length;
 
-        await render(m(component, { o, location }));
+        await render(m(component, { o, location } as m.Attributes));
 
         while (loopLength !== responses.length) {
           loopLength = responses.length;
@@ -241,7 +275,7 @@ export class DevExtension<
 
           count++;
         }
-      } while (responses.length !== currentLenght)
+      } while (responses.length !== currentLength)
 
       return render(m(component, { o, location } as any));
 
@@ -250,9 +284,9 @@ export class DevExtension<
     let view: SSRView;
     let mountPoint: ParsedResult['mountPoints'][0];
     for (let i = 0; i < layout.mountPoints.length; i++) {
+      mountPoint = layout.mountPoints[i];
+      
       html += mountPoint.part;
-
-      mountPoint = layout.mountPoints[i]
       view = mod[mountPoint.id];
 
       if (view == null) continue;
@@ -287,7 +321,7 @@ export class DevExtension<
       integrationType: 'jsonld',
       handler: async ({ res }) => {
         const json = await res.json();
-        const expanded = await expand(
+        const expanded = await jsonld.expand(
           json,
           {
             documentLoader: async (url: string) => {
@@ -320,9 +354,9 @@ export class DevExtension<
           },
         );
 
-        const jsonld = await compact(expanded) as JSONObject;
+        const compacted = await jsonld.compact(expanded) as JSONObject;
 
-        return { jsonld };
+        return { jsonld: compacted };
       },
     };
   }

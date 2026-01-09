@@ -1,8 +1,8 @@
-import type {DependancyMap} from "./dependancy-graph.ts";
 import type {FileInfo} from "./file-info.ts";
 
 
 export type FilesByURL = Map<string, FileInfo>;
+export type FilesByAlias = Map<string, FileInfo>;
 
 export type PolicyDirective =
   | 'child-src'
@@ -65,6 +65,7 @@ export interface ReferenceParser {
     content: Blob,
     file: FileInfo,
     filesByURL: FilesByURL,
+    filesByAlias: FilesByAlias,
   ): Promise<ReferenceDetails[]>;
   
   /**
@@ -78,6 +79,7 @@ export interface ReferenceParser {
     content: Blob,
     file: FileInfo,
     filesByURL: FilesByURL,
+    filesByAlias: FilesByAlias,
   ): Promise<Blob>;
 
 }
@@ -106,6 +108,7 @@ export interface ReferencePreprocessor {
     content: Blob,
     file: FileInfo,
     filesByURL: FilesByURL,
+    filesByAlias: FilesByAlias,
   ): Promise<ReferenceDetails[]>;
   
   /**
@@ -119,6 +122,7 @@ export interface ReferencePreprocessor {
     content: Blob,
     file: FileInfo,
     filesByURL: FilesByURL,
+    filesByAlias: FilesByAlias,
   ): Promise<Blob>;
 
 }

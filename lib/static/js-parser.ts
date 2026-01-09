@@ -2,7 +2,9 @@ import {parse, type ImportDeclaration, type ImportExpression, type Literal, type
 import {generate} from 'astring';
 import {walk} from 'zimmerframe';
 import {type FileInfo} from "./file-info.ts";
-import type {FilesByURL, ReferenceDetails, ReferenceParser} from "./types.ts";
+import type {FilesByAlias, FilesByURL, ReferenceDetails, ReferenceParser} from "./types.ts";
+import {referencedDependancy} from './referenceURL.ts';
+import {referencedFile} from './referenced-file.ts';
 
 
 export type JSReferenceParserArgs = {
@@ -33,32 +35,35 @@ export class JSReferenceParser implements ReferenceParser {
     content: Blob,
     file: FileInfo,
     filesByURL: FilesByURL,
+    filesByAlias: FilesByAlias,
   ): Promise<ReferenceDetails[]> {
     let references: ReferenceDetails[] = [];
-    let url: string;
+    let reference: string;
     const text = await content.text();
     const ast = parse(text, this.#acornOptions);
     
     walk(ast as Node, {}, {
       ImportDeclaration(node: ImportDeclaration, { next }) {
-        url = new URL((node.source as Literal).value as string, file.aliasURL).toString();
-        
-        references.push({
-          url,
-          directive: 'script-src',
-          file: filesByURL.get(url),
-        });
+        reference = node.source.value as string;
+        references.push(referencedDependancy(
+          reference,
+          file,
+          filesByURL,
+          filesByAlias,
+          'script-src',
+        ));
 
         next();
       },
       ImportExpression(node: ImportExpression, { next }) {
-        url = new URL((node.source as Literal).value as string, file.aliasURL).toString();
-        
-        references.push({
-          url,
-          directive: 'script-src',
-          file: filesByURL.get(url),
-        });
+        reference = (node.source as Literal).value as string;
+        references.push(referencedDependancy(
+          reference,
+          file,
+          filesByURL,
+          filesByAlias,
+          'script-src',
+        ));
 
         next();
       },
@@ -70,16 +75,22 @@ export class JSReferenceParser implements ReferenceParser {
   async update(
     content: Blob,
     file: FileInfo,
-    filesByURL: Map<string, FileInfo>,
+    filesByURL: FilesByURL,
+    filesByAlias: FilesByAlias,
   ): Promise<Blob> {
-    let url: string | undefined;
     let ref: FileInfo | undefined;
+    let reference: string;
     const text = await content.text();
     const ast = parse(text, this.#acornOptions);
     const updated = walk(ast as Node, {}, {
       ImportDeclaration(node: ImportDeclaration, { next }) {
-        url = new URL((node.source as Literal).value as string, file.aliasURL).toString();
-        ref = filesByURL.get(url);
+        reference = node.source.value as string;
+        ref = referencedFile(
+          reference,
+          file,
+          filesByURL,
+          filesByAlias,
+        );
 
         if (ref == null) return;
 
@@ -89,8 +100,13 @@ export class JSReferenceParser implements ReferenceParser {
         next();
       },
       ImportExpression(node: ImportExpression, { next }) {
-        url = new URL((node.source as Literal).value as string, file.aliasURL).toString();
-        ref = filesByURL.get(url);
+        reference = (node.source as Literal).value as string;
+        ref = referencedFile(
+          reference,
+          file,
+          filesByURL,
+          filesByAlias,
+        );
 
         if (ref == null) return;
 

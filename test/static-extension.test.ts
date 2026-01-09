@@ -124,7 +124,7 @@ test('It registers static files', async () => {
 
   const hint = extension.hint('sample/fee.css', { as: 'stylesheet' });
   const hash = await hashFile(resolve(sampleDir.path, 'fee.css'));
-  const href = `https://example.com/static/fee-${hash}.css`;
+  const href = `https://example.com/static/fee-${hash}`;
 
   assert.equal(href, hint.href);
 });

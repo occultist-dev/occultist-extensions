@@ -1,4 +1,4 @@
-import {type StaticExtension as StaticExt, type Extension, type Cache, type HintLink, type ImplementedAction, joinPaths, type Registry, type StaticAsset} from '@occultist/occultist';
+import {type StaticAssetExtension, type Extension, type Cache, type HintLink, type ImplementedAction, joinPaths, type Registry, type StaticAsset} from '@occultist/occultist';
 import {createHash} from "crypto";
 import {createReadStream} from "fs";
 import {opendir, readFile} from "fs/promises";
@@ -105,7 +105,7 @@ export type StaticExtensionArgs = {
  * Other endpoints can use the hint method to register early hints linking
  * to hashed actions.
  */
-export class StaticExtension implements Extension, StaticExt {
+export class StaticExtension implements Extension, StaticAssetExtension {
   name = 'static';
   #loaded: boolean = false;
   #registry: Registry;
@@ -136,8 +136,8 @@ export class StaticExtension implements Extension, StaticExt {
     this.#registry.registerExtension(this);
     this.#registry.addEventListener('afterfinalize', this.onAfterFinalize);
 
-    for (let i = 0; i < args.directories.length; i++) {
-      this.#staticAliases.push(args.directories[i].alias);
+    for (let i = 0; i < this.#directories.length; i++) {
+      this.#staticAliases.push(this.#directories[i].alias);
     }
 
     Object.freeze(this.#staticAliases);
@@ -188,8 +188,8 @@ export class StaticExtension implements Extension, StaticExt {
     return this.#filesByAlias.get(alias);
   }
 
-  getAsset(alias: string): StaticAsset | undefined {
-    return this.#filesByAlias.get(alias);
+  getAsset(assetAlias: string): StaticAsset | undefined {
+    return this.#filesByAlias.get(assetAlias);
   }
   
   hint(name: string, args: Omit<HintLink, 'href' | 'contentType'>): HintLink | null {
@@ -298,7 +298,7 @@ export class StaticExtension implements Extension, StaticExt {
           let file = files[i];
 
           const content = await readFile(file.absolutePath);
-          const references = await preprocessor.parse(new Blob([content]), file, this.#filesByURL);
+          const references = await preprocessor.parse(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
 
           dependancies.set(file.alias, new DependancyMap(file, references));
         }
@@ -321,7 +321,7 @@ export class StaticExtension implements Extension, StaticExt {
         let file = files[i];
 
         const content = await readFile(file.absolutePath);
-        const references = await parser.parse(new Blob([content]), file, this.#filesByURL)
+        const references = await parser.parse(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
         dependancies.set(file.alias, new DependancyMap(file, references));
       }
 
@@ -339,7 +339,9 @@ export class StaticExtension implements Extension, StaticExt {
       const parts = name.split('/');
       const friendly = parts[parts.length - 1].split('.')[0];
       const hash = this.#hashes.get(name) as string;
-      let action = this.#registry.http.get(name, joinPaths(this.#prefix, `${friendly}-${hash}.${file.extension}`))
+      let action = this.#registry.http.get(joinPaths(this.#prefix, `${friendly}-${hash}`), {
+          autoFileExtensions: true,
+        })
         .public()
 
       if (this.#cache) {
@@ -350,11 +352,11 @@ export class StaticExtension implements Extension, StaticExt {
         if (preprocessor != null) {
           const content = await readFile(file.absolutePath);
 
-          ctx.body = await preprocessor.process(new Blob([content]), file, this.#filesByURL);
+          ctx.body = await preprocessor.process(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
         } else if (parser != null) {
           const content = await readFile(file.absolutePath);
 
-          ctx.body = await parser.update(new Blob([content]), file, this.#filesByURL);
+          ctx.body = await parser.update(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
         } else {
           ctx.body = Readable.toWeb(createReadStream(file.absolutePath)) as ReadableStream;
         }
@@ -369,10 +371,10 @@ export class StaticExtension implements Extension, StaticExt {
     this.#loaded = true;
   }
 
-  #traverseRe = /.(?:\.(?<lang>[a-zA-Z\-]+))?(?:\.(?<extension>[a-zA-Z0-9]+))$/;
+  #traverseRe = /.(?:\.(?<lang>[a-zA-Z0-9\-]+))?(?:\.(?<extension>[a-zA-Z0-9\-]+))$/;
 
   #staticFileToFileInfo(file: StaticFile): WorkingFileInfo {
-    const parts = file.split(file.path);
+    const parts = file.path.split('/');
     const alias = file.alias;
     const absolutePath = file.path;
     const name = parts[parts.length - 1];
@@ -382,6 +384,7 @@ export class StaticExtension implements Extension, StaticExt {
     const contentType = this.#extensions.get(extension);
 
     return new WorkingFileInfo(
+      true,
       name,
       alias,
       relativePath,
@@ -422,6 +425,7 @@ export class StaticExtension implements Extension, StaticExt {
           yield* this.#traverse([{ alias, path: absolutePath }], root === '' ? directories[i].path : root);
         } else {
           yield new WorkingFileInfo(
+            false,
             name,
             alias,
             relativePath,

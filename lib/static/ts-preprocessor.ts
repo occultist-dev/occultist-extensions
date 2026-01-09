@@ -1,6 +1,8 @@
 import {createPrinter, createSourceFile, factory, forEachChild, isCallExpression, isImportDeclaration, isStringLiteral, NewLineKind, type Node, ScriptTarget, type SourceFile, type StringLiteral, SyntaxKind, transform, type TransformerFactory, visitEachChild, visitNode} from 'typescript';
 import {type FileInfo} from './file-info.ts';
-import type {FilesByURL, ReferenceDetails, ReferencePreprocessor} from './types.ts';
+import type {FilesByAlias, FilesByURL, ReferenceDetails, ReferencePreprocessor} from './types.ts';
+import {referencedFile} from './referenced-file.ts';
+import {referencedDependancy} from './referenceURL.ts';
 
 
 export class TSReferencePreprocessor implements ReferencePreprocessor {
@@ -9,7 +11,12 @@ export class TSReferencePreprocessor implements ReferencePreprocessor {
 
   readonly output: 'application/javascript';
 
-  async parse(content: Blob, file: FileInfo, filesByURL: FilesByURL): Promise<ReferenceDetails[]> {
+  async parse(
+    content: Blob,
+    file: FileInfo,
+    filesByURL: FilesByURL,
+    filesByAlias: FilesByAlias,
+  ): Promise<ReferenceDetails[]> {
     const sourceText = await content.text();
     const source = createSourceFile(
       file.absolutePath,
@@ -21,28 +28,30 @@ export class TSReferencePreprocessor implements ReferencePreprocessor {
 
     function visit(node: Node) {
       if (isImportDeclaration(node) && node.moduleSpecifier) {
-        const path = (node.moduleSpecifier as StringLiteral).text;
-        const url = new URL(path, file.aliasURL).toString();
+        const reference = (node.moduleSpecifier as StringLiteral).text;
 
-        references.push({
-          url,
-          directive: 'script-src',
-          file: filesByURL.get(url),
-        });
+        references.push(referencedDependancy(
+          reference,
+          file,
+          filesByURL,
+          filesByAlias,
+          'script-src',
+        ));
       } else if (
         isCallExpression(node) &&
         node.expression.kind === SyntaxKind.ImportKeyword &&
         node.arguments.length === 1 &&
         isStringLiteral(node.arguments[0])
       ) {
-        const path = node.arguments[0].text;
-        const url = new URL(path, file.aliasURL).toString();
+        const reference = node.arguments[0].text;
 
-        references.push({
-          url,
-          directive: 'script-src',
-          file: filesByURL.get(url),
-        });
+        references.push(referencedDependancy(
+          reference,
+          file,
+          filesByURL,
+          filesByAlias,
+          'script-src',
+        ));
       }
 
       forEachChild(node, visit);
@@ -53,7 +62,12 @@ export class TSReferencePreprocessor implements ReferencePreprocessor {
     return references;
   }
 
-  async process(content: Blob, file: FileInfo, filesByURL: FilesByURL): Promise<Blob> {
+  async process(
+    content: Blob,
+    file: FileInfo,
+    filesByURL: FilesByURL,
+    filesByAlias: FilesByAlias,
+  ): Promise<Blob> {
     const sourceText = await content.text();
     const source = createSourceFile(
       file.absolutePath,
@@ -65,9 +79,14 @@ export class TSReferencePreprocessor implements ReferencePreprocessor {
       function visitor(node: Node) {
         if (isImportDeclaration(node) && node.moduleSpecifier) {
           const path = (node.moduleSpecifier as StringLiteral).text;
-          const url = new URL(path, file.aliasURL).toString();
-          const ref = filesByURL.get(url);
+          const ref = referencedFile(
+            path,
+            file,
+            filesByURL,
+            filesByAlias,
+          );
           const literal = factory.createStringLiteral(ref.url);
+
 
           return factory.updateImportDeclaration(
             node,
@@ -83,8 +102,12 @@ export class TSReferencePreprocessor implements ReferencePreprocessor {
           isStringLiteral(node.arguments[0])
         ) {
           const path = node.arguments[0].text;
-          const url = new URL(path, file.aliasURL).toString();
-          const ref = filesByURL.get(url);
+          const ref = referencedFile(
+            path,
+            file,
+            filesByURL,
+            filesByAlias,
+          );
           const literal = factory.createStringLiteral(ref.url);
 
           return factory.updateCallExpression(

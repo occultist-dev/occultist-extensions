@@ -6,6 +6,7 @@ settings:
 
 overrides:
   '@octiron/octiron': link:../octiron
+  '@occultist/occultist': link:../occultist
 
 importers:
 
@@ -15,8 +16,8 @@ importers:
         specifier: ^0.0.6
         version: 0.0.6
       '@occultist/occultist':
-        specifier: ^0.0.11
-        version: 0.0.11(json-ptr@3.1.1)(jsonld@9.0.0)
+        specifier: link:../occultist
+        version: link:../occultist
       '@octiron/octiron':
         specifier: link:../octiron
         version: link:../octiron
@@ -60,6 +61,9 @@ importers:
       '@types/jsonld':
         specifier: ^1.5.15
         version: 1.5.15
+      '@types/mithril':
+        specifier: ^2.2.7
+        version: 2.2.7
       '@types/node':
         specifier: ^24.10.1
         version: 24.10.4
@@ -126,12 +130,6 @@ packages:
   '@longform/longform@0.0.6':
     resolution: {integrity: sha512-f/bBuiabtGazSfX1gYcu3eKNLggWoF/daZh6pWNvrHWRHmXo4s9/vAqlCBUUYqcbrfnziXg+BC5v0vG9JlVXeA==}
 
-  '@occultist/occultist@0.0.11':
-    resolution: {integrity: sha512-iqm7yeMov6Hzg8ocst9mftqgWzxs4KZaPCWKH7nT4EZgtWLPenQvZoNvITbFYMxlynY7mL5zstK8mhEv/2y9+w==}
-    peerDependencies:
-      json-ptr: ^3.1.1
-      jsonld: ^9.0.0
-
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
 
@@ -140,6 +138,9 @@ packages:
 
   '@types/jsonld@1.5.15':
     resolution: {integrity: sha512-PlAFPZjL+AuGYmwlqwKEL0IMP8M8RexH0NIPGfCVWSQ041H2rR/8OlyZSD7KsCVoN8vCfWdtWDBxX8yBVP+xow==}
+
+  '@types/mithril@2.2.7':
+    resolution: {integrity: sha512-uetxoYizBMHPELl6DSZUfO6Q/aOm+h0NUCv9bVAX2iAxfrdBSOvU9KKFl+McTtxR13F+BReYLY814pJsZvnSxg==}
 
   '@types/node@24.10.4':
     resolution: {integrity: sha512-vnDVpYPMzs4wunl27jHrfmwojOGKya0xyM3sH+UE5iv5uPS6vX7UIoh6m+vQc5LGBq52HBKPIn/zcSZVzeDEZg==}
@@ -218,9 +219,6 @@ packages:
     peerDependenciesMeta:
       canvas:
         optional: true
-
-  json-ptr@3.1.1:
-    resolution: {integrity: sha512-SiSJQ805W1sDUCD1+/t1/1BIrveq2Fe9HJqENxZmMCILmrPI7WhS/pePpIOx85v6/H2z1Vy7AI08GV2TzfXocg==}
 
   jsonld@9.0.0:
     resolution: {integrity: sha512-pjMIdkXfC1T2wrX9B9i2uXhGdyCmgec3qgMht+TDj+S0qX3bjWMQUfL7NeqEhuRTi8G5ESzmL9uGlST7nzSEWg==}
@@ -413,11 +411,6 @@ snapshots:
 
   '@longform/longform@0.0.6': {}
 
-  '@occultist/occultist@0.0.11(json-ptr@3.1.1)(jsonld@9.0.0)':
-    dependencies:
-      json-ptr: 3.1.1
-      jsonld: 9.0.0
-
   '@types/estree@1.0.8': {}
 
   '@types/jsdom@27.0.0':
@@ -427,6 +420,8 @@ snapshots:
       parse5: 7.3.0
 
   '@types/jsonld@1.5.15': {}
+
+  '@types/mithril@2.2.7': {}
 
   '@types/node@24.10.4':
     dependencies:
@@ -519,8 +514,6 @@ snapshots:
       - bufferutil
       - supports-color
       - utf-8-validate
-
-  json-ptr@3.1.1: {}
 
   jsonld@9.0.0:
     dependencies:

@@ -15,7 +15,7 @@
     "url": "https://github.com/occultist-dev/occultist-extensions/issues"
   },
   "scripts": {
-    "build": "rm -r dist/* && tsc -p tsconfig.build.json",
+    "build": "rm -r dist/* || tsc -p tsconfig.build.json",
     "test": "node --test"
   },
   "directories": {
@@ -35,12 +35,13 @@
     "@types/estree": "^1.0.8",
     "@types/jsdom": "^27.0.0",
     "@types/jsonld": "^1.5.15",
+    "@types/mithril": "^2.2.7",
     "@types/node": "^24.10.1"
   },
   "version": "0.0.2",
   "dependencies": {
     "@longform/longform": "^0.0.6",
-    "@occultist/occultist": "^0.0.11",
+    "@occultist/occultist": "^0.0.12",
     "@octiron/octiron": "link:../octiron",
     "acorn": "^8.15.0",
     "astring": "^1.9.0",

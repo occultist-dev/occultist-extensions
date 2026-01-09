@@ -1,7 +1,6 @@
 
 export {
   PolicyDirective,
-  Directory,
   FilesByURL,
   ReferenceDetails,
   ReferenceParser,
@@ -12,6 +11,17 @@ export {
   StaticExtensionArgs,
   StaticExtension,
 } from './static/static-extension.ts';
+
+export {
+  SSRView,
+  SSRViewArgs,
+  SSRViewState,
+} from './dev/types.ts';
+
+export {
+  DotDevExtensionArgs,
+  DotDevExtension,
+} from './dev/dev-extension.ts';
 
 export {
   CSSReferenceParserArgs,

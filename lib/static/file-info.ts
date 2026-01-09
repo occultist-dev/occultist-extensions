@@ -120,8 +120,9 @@ export class WorkingFileInfo {
   aliasURL: string | null = null;
 
   constructor(
+    solo: boolean,
     name: string,
-    directoryAlias: string,
+    alias: string,
     relativePath: string,
     absolutePath: string,
     extension: string,
@@ -129,13 +130,18 @@ export class WorkingFileInfo {
     lang?: string,
   ) {
     this.name = name;
-    this.directoryAlias = directoryAlias
+    this.directoryAlias = alias
     this.relativePath = relativePath;
     this.absolutePath = absolutePath;
     this.extension = extension;
     this.contentType = contentType;
     this.lang = lang;
-    this.alias = join(directoryAlias, relativePath);
+
+    if (solo) {
+      this.alias = alias;
+    } else {
+      this.alias = join(alias, relativePath);
+    }
   }
 
   finalize(
