@@ -1,14 +1,14 @@
 import {longform, type ParsedResult} from '@longform/longform';
-import {ActionSpec, AuthState, ImplementedAction, type Context, type ContextState, type Extension, type HandlerArgs, type Registry, type StaticAssetExtension} from "@occultist/occultist";
-import {JSONLDHandler, JSONObject, longformHandler, octiron, StoreArgs, type Fetcher, type ResponseHook} from '@octiron/octiron';
-import {readFile} from 'fs/promises';
-import jsonld from 'jsonld';
-import {type RemoteDocument} from 'jsonld/jsonld-spec.js';
+import {expand, JSONLDContextStore} from '@occultist/mini-jsonld';
+import {MemoryCache, type ActionSpec, type AuthState, type Cache, type Context, type ContextState, type Extension, type HandlerArgs, type Registry} from "@occultist/occultist";
+import {JSONLDHandler, longformHandler, octiron, StoreArgs, type Fetcher, type ResponseHook} from '@octiron/octiron';
 import m from 'mithril';
 import render from 'mithril-node-render';
-import {resolve} from 'path';
+import {readFile, stat} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {StaticExtension} from '../mod.ts';
+import {StaticFile} from '../static/types.ts';
 import {CommonOctironArgs, SSRModule, type SSRView} from './types.ts';
-import {register} from 'module';
 
 
 
@@ -40,33 +40,67 @@ export type RenderGroup<
 > = {
   name: Name;
   layout?: string;
-  
+};
+
+export type DevExtensionScripts = {
+  'json-ptr': string;
+  'uri-templates': string;
+  'mithril': string;
+  '@longform/longform': string;
+  '@octiron/octiron': string;
+  '@occultist/mini-jsonld': string;
+};
+
+export type DevExtensionStyles = {
+  'octiron.css': string;
 }
 
-export type DotDevExtensionArgs<
+export type DevExtensionDeps = {
+  scripts: Partial<DevExtensionScripts>;
+  styles: Partial<DevExtensionStyles>;
+};
+
+const defaultDevExtensionScripts: DevExtensionScripts = {
+  'json-ptr': 'json-ptr/dist/esm/index.js',
+  'uri-templates': 'uri-templates/uri-templates.min.js',
+  'mithril': 'mithril/mithril.js',
+  '@longform/longform': '@longform/longform/dist/longform.js',
+  '@octiron/octiron': '@octiron/octiron/dist/octiron.js',
+  '@occultist/mini-jsonld': '@occultist/mini-jsonld/dist/expand.js',
+} as const;
+const scriptNames = Object.keys(defaultDevExtensionScripts);
+
+const defaultDevExtensionStyles = {
+  'octiron.css': '@octiron/octiron/dist/octiron.css',
+} as const;
+const styleNames = Object.keys(defaultDevExtensionStyles);
+
+
+export type DevExtensionArgs<
   GroupName extends string = string,
 > = {
   vocab?: StoreArgs['vocab'];
   aliases?: StoreArgs['aliases'];
   acceptMap?: StoreArgs['acceptMap'];
   registry: Registry;
-  staticExtension: StaticAssetExtension;
+  cache?: Cache;
   scripts?: string[];
   styles?: string[];
   layout?: string;
   groups?: RenderGroup<GroupName>[];
+  nodeModulesDir: string;
   layoutsDir: string;
   pagesDir: string;
+  deps?: Partial<DevExtensionDeps>;
 };
 
-export class DotDevExtension<
+export class DevExtension<
   GroupName extends string = string,
 > implements Extension {
 
   name: string = 'dev';
   
   #registry: Registry;
-  #staticExtension: StaticAssetExtension;
   #octironArgs: CommonOctironArgs;
   #layout?: string;
   #groups: RenderGroup<GroupName>[];
@@ -75,14 +109,11 @@ export class DotDevExtension<
   #pagesDir: string;
   #defaultLayout?: ParsedResult;
   #layouts: Map<string, ParsedResult>;
-  #headContent: string;
-  #headContents: Map<string, string> = new Map();
-  #styles: Map<string, ImplementedAction>;
-  #scripts: Map<string, ImplementedAction>;
+  #static: StaticExtension;
 
-  constructor(args: DotDevExtensionArgs<GroupName>) {
+  constructor(args: DevExtensionArgs<GroupName>) {
     this.#registry = args.registry;
-    this.#staticExtension = args.staticExtension;
+    //this.#staticExtension = args.staticExtension;
 
     this.#layout = args.layout;
     this.#layoutsDir = args.layoutsDir;
@@ -98,6 +129,35 @@ export class DotDevExtension<
     for (let i = 0; i < this.#groups.length; i++) {
       this.#groupByName.set(this.#groups[i].name, this.#groups[i]);
     }
+    
+    const scriptDeps: DevExtensionScripts = args.deps?.scripts != null
+      ? { ...defaultDevExtensionScripts, ...args.deps.scripts }
+      : defaultDevExtensionScripts;
+    const styleDeps: DevExtensionStyles = args.deps?.styles != null
+      ? { ...defaultDevExtensionStyles, ...args.deps.styles }
+      : defaultDevExtensionStyles;
+
+    const staticFiles: StaticFile[] = [];
+
+    for (const [key, file] of Object.entries(scriptDeps)) {
+      staticFiles.push({
+        alias: key,
+        path: resolve(args.nodeModulesDir, file),
+      });
+    }
+
+    for (const [key, file] of Object.entries(styleDeps)) {
+      staticFiles.push({
+        alias: key,
+        path: resolve(args.nodeModulesDir, file),
+      });
+    }
+
+    this.#static = new StaticExtension({
+      registry: args.registry,
+      cache: args.cache ?? new MemoryCache(args.registry),
+      files: staticFiles,
+    });
 
     this.#registry.registerExtension(this);
     //this.#registry.addEventListener('beforefinalize', this.onBeforeFinalize);
@@ -123,15 +183,11 @@ export class DotDevExtension<
     } else {
       layout = defaultLayoutContent;
     }
-    const defaultLayout = longform(layout);
-
-    console.log('DEF LAY', defaultLayout);
-
-    this.#defaultLayout = defaultLayout;
+    this.#defaultLayout = longform(layout);
                                       
     for (let i = 0; i < this.#groups  .length; i++) {
       if (this.#groups[i].layout == null) {
-        this.#layouts.set(this.#groups[i].name, defaultLayout);
+        this.#layouts.set(this.#groups[i].name, this.#defaultLayout);
 
         continue;
       };
@@ -155,23 +211,18 @@ export class DotDevExtension<
    * the pages directory.
    */
   async loadModule(pagePath: string): Promise<SSRModule> {
+    let mod: SSRModule | undefined;
     const tsFile = resolve(this.#pagesDir, pagePath + '.ts');
     const jsFile = resolve(this.#pagesDir, pagePath + '.js');
-
-    console.log(tsFile);
-
-    const [jsMod, tsMod] = await Promise.allSettled([
-      import(resolve(this.#pagesDir, pagePath + '.ts')),
-      import(resolve(this.#pagesDir, pagePath + '.js')),
-    ]);
-
-    const mod: SSRModule = tsMod.status === 'fulfilled'
-      ? tsMod.value
-      : jsMod.status === 'fulfilled'
-      ? jsMod.value
-      : undefined;
-      
-    console.log('MOD', mod);
+    try {
+      await stat(tsFile);
+      mod = await import(tsFile);
+    } catch {
+      try {
+        await stat(jsFile);
+        mod = await import(jsFile);
+      } catch {}
+    }
 
     if (mod == null) throw new Error('Module for page "' + pagePath + '" not found');
 
@@ -218,17 +269,26 @@ export class DotDevExtension<
       ? this.#defaultLayout
       : this.#layouts.get(renderGroup) ?? this.#defaultLayout;
 
-      console.log('LAYOUT', layout);
-
     if (layout == null || !layout.mountable) return;
 
     const mod = await this.loadModule(pagePath);
+
+    let head: string = '';
+    
+    for (const staticAsset of this.#static.queryStaticAssets(scriptNames)) {
+      console.log(staticAsset.alias);
+      console.log(staticAsset.url);
+
+      head += `<script type="module" src="${staticAsset.url}"></script>`;
+    }
+
+    //console.log(this.#static.dependancies);
     
     await this.#renderPage(
       ctx,
       layout,
       mod,
-      '',
+      head,
     );
   }
 
@@ -314,49 +374,20 @@ export class DotDevExtension<
   }
 
   jsonLDHandler(): JSONLDHandler {
-    const cache: Record<string, RemoteDocument> = {};
+    const cache: Record<string, any> = {};
+    const store = new JSONLDContextStore({
+      fetcher: (url: string, init: RequestInit) => this.#registry.handleRequest(
+        new Request(url, init),
+      ),
+    });
 
     return {
       contentType: 'application/ld+json',
       integrationType: 'jsonld',
       handler: async ({ res }) => {
         const json = await res.json();
-        const expanded = await jsonld.expand(
-          json,
-          {
-            documentLoader: async (url: string) => {
-              if (Object.hasOwn(cache, url)) {
-                return {
-                  document: cache[url],
-                  documentUrl: url,
-                };
-              }
 
-              if (typeof url === 'string') {
-                const req = new Request(url, {
-                  headers: {
-                    'Accept': 'application/ld+json',
-                  },
-                });
-                const res = await this.#registry.handleRequest(req);
-                const document = await res.json();
-
-                cache[url] = document;
-
-                return {
-                  document,
-                  documentUrl: url,
-                };
-              }
-
-              throw new Error('Could not find @context "' + url + '"');
-            },
-          },
-        );
-
-        const compacted = await jsonld.compact(expanded) as JSONObject;
-
-        return { jsonld: compacted };
+        return { jsonld: await expand(json) };
       },
     };
   }

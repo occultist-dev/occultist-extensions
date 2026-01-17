@@ -1,5 +1,5 @@
 
-export {
+export type {
   PolicyDirective,
   FilesByURL,
   ReferenceDetails,
@@ -7,34 +7,49 @@ export {
   ReferencePreprocessor,
 } from './static/types.ts';
 
-export {
+export type {
   StaticExtensionArgs,
-  StaticExtension,
 } from './static/static-extension.ts';
 
 export {
+  StaticExtension,
+} from './static/static-extension.ts';
+
+export type {
   SSRView,
   SSRViewArgs,
   SSRViewState,
 } from './dev/types.ts';
 
-export {
-  DotDevExtensionArgs,
-  DotDevExtension,
+export type {
+  DevExtensionArgs,
 } from './dev/dev-extension.ts';
 
 export {
+  DevExtension,
+} from './dev/dev-extension.ts';
+
+export type {
   CSSReferenceParserArgs,
-  CSSReferenceParser,
 } from './static/css-parser.ts';
 
 export {
+  CSSReferenceParser,
+} from './static/css-parser.ts';
+
+export type {
   JSReferenceParserArgs,
-  JSReferenceParser,
 } from './static/js-parser.ts';
 
 export {
+  JSReferenceParser,
+} from './static/js-parser.ts';
+
+export type {
   HTMLParserArgs,
+} from './static/html-parser.ts';
+
+export {
   HTMLParser,
 } from './static/html-parser.ts';
 

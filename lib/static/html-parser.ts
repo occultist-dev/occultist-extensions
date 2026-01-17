@@ -1,5 +1,3 @@
-import {readFile} from "fs/promises";
-import {DependancyMap} from "./dependancy-graph.ts";
 import {type FileInfo} from "./file-info.ts";
 import type {PolicyDirective, ReferenceDetails, ReferenceParser} from "./types.ts";
 import { JSDOM } from 'jsdom';

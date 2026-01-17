@@ -1,9 +1,9 @@
 import {type StaticAssetExtension, type Extension, type Cache, type HintLink, type ImplementedAction, joinPaths, type Registry, type StaticAsset} from '@occultist/occultist';
-import {createHash} from "crypto";
-import {createReadStream} from "fs";
-import {opendir, readFile} from "fs/promises";
-import {join} from "path";
-import {Readable} from "stream";
+import {createHash} from "node:crypto";
+import {createReadStream} from "node:fs";
+import {opendir, readFile} from "node:fs/promises";
+import {join} from "node:path";
+import {Readable} from "node:stream";
 import {DependancyGraph, DependancyMap} from './dependancy-graph.ts';
 import {type FileInfo, WorkingFileInfo} from './file-info.ts';
 import type {StaticDirectory, StaticFile, ReferenceParser, ReferencePreprocessor} from './types.ts';
@@ -191,6 +191,21 @@ export class StaticExtension implements Extension, StaticAssetExtension {
   getAsset(assetAlias: string): StaticAsset | undefined {
     return this.#filesByAlias.get(assetAlias);
   }
+
+  queryStaticAssets(assetAliases: string[]): StaticAsset[] {
+    let staticAsset: StaticAsset;
+    const staticAssets: StaticAsset[] = [];
+
+    for (let i = 0; i < assetAliases.length; i++) {
+      staticAsset = this.#filesByAlias.get(assetAliases[i]);
+
+      if (staticAsset == null) continue;
+
+      staticAssets.push(staticAsset);
+    }
+
+    return staticAssets;
+  }
   
   hint(name: string, args: Omit<HintLink, 'href' | 'contentType'>): HintLink | null {
     const file = this.#filesByAlias.get(name);
@@ -257,11 +272,13 @@ export class StaticExtension implements Extension, StaticAssetExtension {
 
       const content = await readFile(file.absolutePath);
       const hash = createHash('sha1').update(content).digest('hex');
-      const parts = file.name.split('/');
+      const parts = file.alias.split('/');
       const friendly = parts[parts.length - 1].split('.')[0];
       const rootURL = this.#registry.rootIRI;
       const aliasURL = joinPaths(rootURL, this.#prefix, file.alias);
-      const url = joinPaths(rootURL, this.#prefix, `${friendly}-${hash}.${file.extension}`);
+      const url = joinPaths(rootURL, this.#prefix, `${friendly}-${hash}`);
+
+      console.log(url);
       
       file.finalize(hash, url, aliasURL);
       this.#hashes.set(file.alias, hash);
@@ -339,6 +356,7 @@ export class StaticExtension implements Extension, StaticAssetExtension {
       const parts = name.split('/');
       const friendly = parts[parts.length - 1].split('.')[0];
       const hash = this.#hashes.get(name) as string;
+      console.log(joinPaths(this.#prefix, `${friendly}-${hash}`));
       let action = this.#registry.http.get(joinPaths(this.#prefix, `${friendly}-${hash}`), {
           autoFileExtensions: true,
         })
@@ -356,7 +374,9 @@ export class StaticExtension implements Extension, StaticAssetExtension {
         } else if (parser != null) {
           const content = await readFile(file.absolutePath);
 
+          console.log('PARSING')
           ctx.body = await parser.update(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
+          console.log('DONE PARSING');
         } else {
           ctx.body = Readable.toWeb(createReadStream(file.absolutePath)) as ReadableStream;
         }
@@ -372,7 +392,7 @@ export class StaticExtension implements Extension, StaticAssetExtension {
   }
 
   #traverseRe = /.(?:\.(?<lang>[a-zA-Z0-9\-]+))?(?:\.(?<extension>[a-zA-Z0-9\-]+))$/;
-
+  
   #staticFileToFileInfo(file: StaticFile): WorkingFileInfo {
     const parts = file.path.split('/');
     const alias = file.alias;
