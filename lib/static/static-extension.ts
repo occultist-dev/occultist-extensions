@@ -4,7 +4,7 @@ import {createReadStream} from "node:fs";
 import {opendir, readFile} from "node:fs/promises";
 import {join} from "node:path";
 import {Readable} from "node:stream";
-import {DependancyGraph, DependancyMap} from './dependancy-graph.ts';
+import {DependencyGraph, DependencyMap} from './dependency-graph.ts';
 import {type FileInfo, WorkingFileInfo} from './file-info.ts';
 import type {StaticDirectory, StaticFile, ReferenceParser, ReferencePreprocessor} from './types.ts';
 import {CSSReferenceParser} from './css-parser.ts';
@@ -123,7 +123,7 @@ export class StaticExtension implements Extension, StaticAssetExtension {
   #filesByContentType: Map<string, FileInfo[]> = new Map();
   #hashes: HashMap = new Map();
   #actions: ActionMap = new Map();
-  #dependancies: DependancyGraph | undefined;
+  #dependencies: DependencyGraph | undefined;
 
   constructor(args: StaticExtensionArgs) {
     this.#registry = args.registry;
@@ -133,8 +133,9 @@ export class StaticExtension implements Extension, StaticAssetExtension {
     this.#extensions = new Map(Object.entries(args.extensions ?? defaultExtensions)) as ExtensionMap;
     this.#prefix = args.prefix ?? '/';
 
-    this.#registry.registerExtension(this);
-    this.#registry.addEventListener('afterfinalize', this.onAfterFinalize);
+    for (let i = 0; i < this.#files.length; i++) {
+      this.#staticAliases.push(this.#files[i].alias);
+    }
 
     for (let i = 0; i < this.#directories.length; i++) {
       this.#staticAliases.push(this.#directories[i].alias);
@@ -153,6 +154,9 @@ export class StaticExtension implements Extension, StaticAssetExtension {
         this.#preprocessors.set(extension, preprocessor);
       }
     }
+
+    this.#registry.registerExtension(this);
+    this.#registry.addEventListener('afterfinalize', this.onAfterFinalize);
   }
 
   /**
@@ -172,8 +176,8 @@ export class StaticExtension implements Extension, StaticAssetExtension {
     await Promise.all(promises);
   }
 
-  get dependancies(): DependancyGraph | undefined {
-    return this.#dependancies;
+  get dependencies(): DependencyGraph | undefined {
+    return this.#dependencies;
   }
 
   get staticAliases(): string[] {
@@ -190,6 +194,10 @@ export class StaticExtension implements Extension, StaticAssetExtension {
 
   getAsset(assetAlias: string): StaticAsset | undefined {
     return this.#filesByAlias.get(assetAlias);
+  }
+
+  listAssets(): StaticAsset[] {
+    return Array.from(this.#filesByURL.values());
   }
 
   queryStaticAssets(assetAliases: string[]): StaticAsset[] {
@@ -277,8 +285,6 @@ export class StaticExtension implements Extension, StaticAssetExtension {
       const rootURL = this.#registry.rootIRI;
       const aliasURL = joinPaths(rootURL, this.#prefix, file.alias);
       const url = joinPaths(rootURL, this.#prefix, `${friendly}-${hash}`);
-
-      console.log(url);
       
       file.finalize(hash, url, aliasURL);
       this.#hashes.set(file.alias, hash);
@@ -297,9 +303,9 @@ export class StaticExtension implements Extension, StaticAssetExtension {
       this.#filesByContentType.get(file.contentType).push(file);
     }
     
-    const dependancyMaps: Array<Map<string, DependancyMap>> = [];
+    const dependencyMaps: Array<Map<string, DependencyMap>> = [];
 
-    writer.write('Building dependancy tree');
+    writer.write('Building dependency tree');
 
     for (const [extension, contentType] of this.#extensions.entries()) {
       const preprocessor = this.#preprocessors.get(extension);
@@ -309,7 +315,7 @@ export class StaticExtension implements Extension, StaticAssetExtension {
 
         if (files == null) continue;
 
-        const dependancies: Map<string, DependancyMap> = new Map();
+        const dependencies: Map<string, DependencyMap> = new Map();
 
         for (let i = 0; i < files.length; i++) {
           let file = files[i];
@@ -317,10 +323,10 @@ export class StaticExtension implements Extension, StaticAssetExtension {
           const content = await readFile(file.absolutePath);
           const references = await preprocessor.parse(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
 
-          dependancies.set(file.alias, new DependancyMap(file, references));
+          dependencies.set(file.alias, new DependencyMap(file, references));
         }
 
-        dependancyMaps.push(dependancies);
+        dependencyMaps.push(dependencies);
         continue;
       }
 
@@ -332,21 +338,21 @@ export class StaticExtension implements Extension, StaticAssetExtension {
 
       if (files == null) continue;
 
-      const dependancies: Map<string, DependancyMap> = new Map();
+      const dependencies: Map<string, DependencyMap> = new Map();
 
       for (let i = 0; i < files.length; i++) {
         let file = files[i];
 
         const content = await readFile(file.absolutePath);
         const references = await parser.parse(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
-        dependancies.set(file.alias, new DependancyMap(file, references));
+        dependencies.set(file.alias, new DependencyMap(file, references));
       }
 
-      dependancyMaps.push(dependancies);
+      dependencyMaps.push(dependencies);
     }
 
-    this.#dependancies = new DependancyGraph(
-      new Map(dependancyMaps.flatMap((map => Array.from(map.entries())))),
+    this.#dependencies = new DependencyGraph(
+      new Map(dependencyMaps.flatMap((map => Array.from(map.entries())))),
     );
 
     writer.write('Registering actions');
@@ -356,7 +362,6 @@ export class StaticExtension implements Extension, StaticAssetExtension {
       const parts = name.split('/');
       const friendly = parts[parts.length - 1].split('.')[0];
       const hash = this.#hashes.get(name) as string;
-      console.log(joinPaths(this.#prefix, `${friendly}-${hash}`));
       let action = this.#registry.http.get(joinPaths(this.#prefix, `${friendly}-${hash}`), {
           autoFileExtensions: true,
         })
@@ -374,9 +379,7 @@ export class StaticExtension implements Extension, StaticAssetExtension {
         } else if (parser != null) {
           const content = await readFile(file.absolutePath);
 
-          console.log('PARSING')
           ctx.body = await parser.update(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
-          console.log('DONE PARSING');
         } else {
           ctx.body = Readable.toWeb(createReadStream(file.absolutePath)) as ReadableStream;
         }

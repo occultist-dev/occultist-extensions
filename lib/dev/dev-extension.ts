@@ -1,14 +1,14 @@
 import {longform, type ParsedResult} from '@longform/longform';
-import {expand, JSONLDContextStore} from '@occultist/mini-jsonld';
+import {expand, JSONLDContextStore, type JSONObject} from '@occultist/mini-jsonld';
 import {MemoryCache, type ActionSpec, type AuthState, type Cache, type Context, type ContextState, type Extension, type HandlerArgs, type Registry} from "@occultist/occultist";
-import {JSONLDHandler, longformHandler, octiron, StoreArgs, type Fetcher, type ResponseHook} from '@octiron/octiron';
+import {type JSONLDHandler, longformHandler, octiron, type StoreArgs, type Fetcher, type ResponseHook} from '@octiron/octiron';
 import m from 'mithril';
 import render from 'mithril-node-render';
 import {readFile, stat} from 'node:fs/promises';
 import {resolve} from 'node:path';
-import {StaticExtension} from '../mod.ts';
-import {StaticFile} from '../static/types.ts';
-import {CommonOctironArgs, SSRModule, type SSRView} from './types.ts';
+import {StaticExtension} from '../static/static-extension.ts';
+import type {StaticFile} from '../static/types.ts';
+import type {CommonOctironArgs, SSRModule, SSRView} from './types.ts';
 
 
 
@@ -73,7 +73,6 @@ const scriptNames = Object.keys(defaultDevExtensionScripts);
 const defaultDevExtensionStyles = {
   'octiron.css': '@octiron/octiron/dist/octiron.css',
 } as const;
-const styleNames = Object.keys(defaultDevExtensionStyles);
 
 
 export type DevExtensionArgs<
@@ -113,7 +112,6 @@ export class DevExtension<
 
   constructor(args: DevExtensionArgs<GroupName>) {
     this.#registry = args.registry;
-    //this.#staticExtension = args.staticExtension;
 
     this.#layout = args.layout;
     this.#layoutsDir = args.layoutsDir;
@@ -160,7 +158,6 @@ export class DevExtension<
     });
 
     this.#registry.registerExtension(this);
-    //this.#registry.addEventListener('beforefinalize', this.onBeforeFinalize);
   }
 
   setup(): ReadableStream {
@@ -276,13 +273,8 @@ export class DevExtension<
     let head: string = '';
     
     for (const staticAsset of this.#static.queryStaticAssets(scriptNames)) {
-      console.log(staticAsset.alias);
-      console.log(staticAsset.url);
-
       head += `<script type="module" src="${staticAsset.url}"></script>`;
     }
-
-    //console.log(this.#static.dependancies);
     
     await this.#renderPage(
       ctx,
@@ -292,6 +284,37 @@ export class DevExtension<
     );
   }
 
+  /**
+   * This is a basic SSR rendering loop. Because all requests, or at least
+   * those managed by the Occultist framework are performed via the Occultist
+   * store the Occultist.dev extension can perform these requests and render
+   * a complete page in the response.
+   *
+   * To allow a full page to be rendered with dependencies requiring fetching
+   * a hook is added to the store so the SSR loop can await the resolution of
+   * the fetch call.
+   *
+   * The fetch behaviour is also patched so Request objects are passed directly
+   * to the Occultist registry for handling instead of going over the network.
+   * This keeps the call on the process, reducing overheads.
+   *
+   * The store's initial state is defined and the loop renders the page. If Octiron
+   * triggers one / many fetch requests those are allowed to complete, 
+   * populating the Octiron's store's state. Octiron selections can in theory
+   * trigger further requests and these are resolved without another render.
+   * A second loop allows these deeper requests to complete.
+   *
+   * Each time a set of selectors causes fetch requests to be made Octiron might
+   * encounter further selectors on the next render requiring requests to be made.
+   * The main SSR render loop keeps going until Octiron has populated the store
+   * with all fetchable entities and the final render is performed.
+   *
+   * This render loop is simple and has obvious performance downsides compared to 
+   * solution which streams rendered HTML as the mithril code is unblocked and can
+   * render in a single streaming pass. The Occultist.dev solution has various
+   * mitigations to these issues and if the project is successful, improving the
+   * SSR render strategy would be something to consider.
+   */
   async #renderPage(
     ctx: Context,
     layout: ParsedResult,
@@ -304,6 +327,8 @@ export class DevExtension<
     const location = new URL(ctx.url);
     const responses: Array<Promise<Response>> = [];
     const renderedMountPoints: string[] = [];
+    const primary: StoreArgs['primary'] = {};
+    const alternatives: StoreArgs['alternatives'] = new Map();
     const fetcher: Fetcher = (url, args) => {
       return ctx.registry.handleRequest(new Request(url, args));
     };
@@ -316,18 +341,27 @@ export class DevExtension<
       headers,
       fetcher,
       responseHook,
+      primary,
+      alternatives,
       handlers: [
         this.jsonLDHandler(),
         longformHandler,
       ],
     });
 
-    async function renderDOM(component: m.ComponentTypes): Promise<string> {
+    /**
+     * SSR Render loop.
+     *
+     * TODO This likely has the potential for infinite loops or getting stuck.
+     */
+    async function renderLoop(component: m.ComponentTypes): Promise<string> {
+      // render Mithril view, triggering requests via Occultist selectors
       do {
         let loopLength = currentLength = responses.length;
 
         await render(m(component, { o, location } as m.Attributes));
 
+        // fetch all entities required by Occultist selector
         while (loopLength !== responses.length) {
           loopLength = responses.length;
 
@@ -337,27 +371,51 @@ export class DevExtension<
         }
       } while (responses.length !== currentLength)
 
+      // final render with populated store.
       return render(m(component, { o, location } as any));
-
     }
 
-    let view: SSRView;
-    let mountPoint: ParsedResult['mountPoints'][0];
+    const state = {};
+    const renders: Array<Promise<[
+      mountpoint: ParsedResult['mountPoints'][0],
+      fragment: string,
+    ]>> = [];
     for (let i = 0; i < layout.mountPoints.length; i++) {
-      mountPoint = layout.mountPoints[i];
-      
-      html += mountPoint.part;
-      view = mod[mountPoint.id];
+      // A longform layout can set multiple mountpoints.
+      // This behaviour has similar results to the server
+      // islands architecture and uses Mithril's mounting
+      // behaviour which can mount more than one DOM node
+      // and be targeted by `m.redraw()` globally.
+      const mountPoint = layout.mountPoints[i];
+      const view = mod[mountPoint.id];
 
-      if (view == null) continue;
-
+      if (typeof view !== 'function') continue;
+ 
+      // each mountpoint has a simple Mithril component
+      // defined for it, calling the module's view fn using
+      // the same name. a nice aspect of this is in client
+      // side navigation the view function changes without
+      // requiring the mountpoint's component to be re-initialized.
       const component = {
         view() {
-          return view({ o, location, state: {} });
+          return view({ o, location, state });
         },
       };
-      const fragment = await renderDOM(component);
+
+      renders.push(new Promise(async (resolve) => {
+        resolve([
+          mountPoint,
+          await renderLoop(component),
+        ]);
+      }));
+    }
+
+    const rendered = await Promise.all(renders);
+
+    for (let i = 0; i < rendered.length; i++) {
+      const [mountPoint, fragment] = rendered[i];
       
+      html += mountPoint.part;
       html += fragment;
       renderedMountPoints.push(mountPoint.id);
     }
@@ -369,16 +427,24 @@ export class DevExtension<
     html = html.replace(/<\/head>/, headContent + '</head>');
     html = html.replace(/<\/body><\/html>$/, mountPointState + initialState + '</body></html>');
 
+    // The store can have a http status set if an octiron selection has `{ mainEntity: true }` in
+    // its args.
     ctx.status = o.store.httpStatus ?? 200;
     ctx.body = html;
   }
 
   jsonLDHandler(): JSONLDHandler {
-    const cache: Record<string, any> = {};
     const store = new JSONLDContextStore({
-      fetcher: (url: string, init: RequestInit) => this.#registry.handleRequest(
-        new Request(url, init),
-      ),
+      fetcher: async (url: string, init: RequestInit) => {
+        const res = await this.#registry.handleRequest(
+          new Request(url, init),
+        );
+
+        const res2 = res.clone();
+        const body = await res2.json();
+
+        return res;
+      }
     });
 
     return {
@@ -386,10 +452,11 @@ export class DevExtension<
       integrationType: 'jsonld',
       handler: async ({ res }) => {
         const json = await res.json();
+        const jsonld: JSONObject = await expand(json, { store }) as JSONObject;
 
-        return { jsonld: await expand(json) };
+        return { jsonld };
       },
-    };
+    } satisfies JSONLDHandler;
   }
 
 }

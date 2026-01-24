@@ -1,5 +1,5 @@
-import { Octiron, StoreArgs } from '@octiron/octiron';
-import { Children } from 'mithril';
+import type { Octiron, StoreArgs } from '@octiron/octiron';
+import type { Children } from 'mithril';
 
 
 export type CommonOctironArgs = {

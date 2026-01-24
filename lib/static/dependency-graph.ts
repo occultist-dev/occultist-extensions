@@ -2,7 +2,7 @@ import type {FileInfo} from "./file-info.ts";
 import type {PolicyDirective, ReferenceDetails} from "./types.ts";
 
 
-export class DependancyMap {
+export class DependencyMap {
   file: FileInfo;
   references: ReferenceDetails[];
   polices: Map<PolicyDirective, ReferenceDetails[]> = new Map();
@@ -30,37 +30,37 @@ export class DependancyMap {
   }
 }
 
-export class DependancyGraph {
-  dependancies: Map<string, DependancyMap> = new Map();
+export class DependencyGraph {
+  dependencies: Map<string, DependencyMap> = new Map();
   
-  constructor(dependancies: Map<string, DependancyMap>) {
-    this.dependancies = dependancies;
+  constructor(dependencies: Map<string, DependencyMap>) {
+    this.dependencies = dependencies;
 
-    for (const dependancyMap of this.dependancies.values()) {
-      for (let i = 0; i < dependancyMap.references.length; i++) {
-        const reference = dependancyMap.references[i];
+    for (const dependencyMap of this.dependencies.values()) {
+      for (let i = 0; i < dependencyMap.references.length; i++) {
+        const reference = dependencyMap.references[i];
 
         if (reference.file == null) {
-          console.warn(`Unknown dependancy reference ${reference.url}`);
+          console.warn(`Unknown dependency reference ${reference.url}`);
           
           continue;
         }
 
-        const other = this.dependancies.get(reference.file.alias);
+        const other = this.dependencies.get(reference.file.alias);
 
         if (other == null) {
           continue;
         }
      
         for (let j = 0; j < other.references.length; j++) {
-          dependancyMap.references.push(other.references[j]);
+          dependencyMap.references.push(other.references[j]);
         }
       }
 
-      dependancyMap.finalize();
+      dependencyMap.finalize();
     }
     
-    Object.freeze(this.dependancies);
+    Object.freeze(this.dependencies);
     Object.freeze(this);
   }
 
@@ -68,24 +68,24 @@ export class DependancyGraph {
    * Returns a debug string for this dependancy graph.
    */
   debug(): string {
-    let debug = 'Dependancy Graph\n----------------\n\n';
-    let dependancy: DependancyMap;
-    const dependancies = Array.from(this.dependancies.values());
+    let debug = 'Dependency Graph\n----------------\n\n';
+    let dependency: DependencyMap;
+    const dependencies = Array.from(this.dependencies.values());
 
-    for (let i = 0; i < dependancies.length; i++) {
+    for (let i = 0; i < dependencies.length; i++) {
       if (i !== 0) debug += '\n';
 
-      dependancy = dependancies[i];
-      debug += dependancy.file.alias + '\n';
+      dependency = dependencies[i];
+      debug += dependency.file.alias + '\n';
 
-      const polices = Array.from(dependancy.polices.entries());
+      const polices = Array.from(dependency.polices.entries());
       
       if (polices.length === 0) {
-        debug += `  No dependancies\n`;
+        debug += `  No dependencies\n`;
         continue;
       }
       
-      for (const [policy, references] of dependancy.polices.entries()) {
+      for (const [policy, references] of dependency.polices.entries()) {
         debug += `  ${policy}\n`;
 
         for (let j = 0; j < references.length; j++) {

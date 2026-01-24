@@ -27,7 +27,6 @@ export function referencedDependancy(
   filesByAlias: FilesByAlias,
   directive?: PolicyDirective,
 ): ReferenceDetails {
-  console.log('REF DEP', reference);
   const file = referencedFile(
     reference,
     containingFile,
