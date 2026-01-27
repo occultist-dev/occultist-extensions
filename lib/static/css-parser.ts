@@ -1,7 +1,7 @@
 import type {FilesByAlias, FilesByURL, PolicyDirective, ReferenceDetails, ReferenceParser} from "./types.js";
 import {type FileInfo} from "./file-info.ts";
 import {referencedFile} from './referenced-file.ts';
-import {referencedDependancy} from "./referenceURL.ts";
+import {referencedDependency} from "./referenceURL.ts";
 
 
 type PolicyDirectiveMap = Record<string, PolicyDirective>;
@@ -65,7 +65,7 @@ export class CSSReferenceParser implements ReferenceParser {
       while ((m2 = this.urlRe.exec(m1[3]))) {
         url = new URL(m2[1] ?? m2[2] ?? m2[3], file.aliasURL).toString();
 
-        references.push(referencedDependancy(
+        references.push(referencedDependency(
           url,
           file,
           filesByURL,

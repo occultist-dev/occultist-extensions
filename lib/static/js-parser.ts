@@ -3,8 +3,9 @@ import {generate} from 'astring';
 import {walk} from 'zimmerframe';
 import {type FileInfo} from "./file-info.ts";
 import type {FilesByAlias, FilesByURL, ReferenceDetails, ReferenceParser} from "./types.ts";
-import {referencedDependancy} from './referenceURL.ts';
+import {referencedDependency} from './referenceURL.ts';
 import {referencedFile} from './referenced-file.ts';
+import {minify} from 'terser';
 
 
 export type JSReferenceParserArgs = {
@@ -45,7 +46,7 @@ export class JSReferenceParser implements ReferenceParser {
     walk(ast as Node, {}, {
       ImportDeclaration(node: ImportDeclaration, { next }) {
         reference = node.source.value as string;
-        references.push(referencedDependancy(
+        references.push(referencedDependency(
           reference,
           file,
           filesByURL,
@@ -57,7 +58,7 @@ export class JSReferenceParser implements ReferenceParser {
       },
       ImportExpression(node: ImportExpression, { next }) {
         reference = (node.source as Literal).value as string;
-        references.push(referencedDependancy(
+        references.push(referencedDependency(
           reference,
           file,
           filesByURL,
@@ -117,6 +118,7 @@ export class JSReferenceParser implements ReferenceParser {
       },
     });
     const serialized = generate(updated);
+    //const minified = await minify(serialized);
 
     return new Blob([serialized], { type: file.contentType });
   }

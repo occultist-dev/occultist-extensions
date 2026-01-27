@@ -51,6 +51,7 @@
     "mithril": "^2.3.8",
     "mithril-node-render": "^3.0.2",
     "source-map": "^0.7.6",
+    "terser": "^5.46.0",
     "ts-blank-space": "^0.6.2",
     "typescript": "^5.9.3",
     "zimmerframe": "^1.1.4"

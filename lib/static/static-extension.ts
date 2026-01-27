@@ -303,32 +303,37 @@ export class StaticExtension implements Extension, StaticAssetExtension {
       this.#filesByContentType.get(file.contentType).push(file);
     }
     
+    const handledExtensions = new Set<string>();
     const dependencyMaps: Array<Map<string, DependencyMap>> = [];
 
     writer.write('Building dependency tree');
 
-    for (const [extension, contentType] of this.#extensions.entries()) {
+    for (const extension of this.#extensions.keys()) {
       const preprocessor = this.#preprocessors.get(extension);
 
-      if (preprocessor != null) {
-        const files = this.#filesByExtension.get(extension);
+      if (preprocessor == null) continue;
 
-        if (files == null) continue;
+      const files = this.#filesByExtension.get(extension);
 
-        const dependencies: Map<string, DependencyMap> = new Map();
+      if (files == null) continue;
 
-        for (let i = 0; i < files.length; i++) {
-          let file = files[i];
+      const dependencies: Map<string, DependencyMap> = new Map();
 
-          const content = await readFile(file.absolutePath);
-          const references = await preprocessor.parse(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
+      for (let i = 0; i < files.length; i++) {
+        let file = files[i];
 
-          dependencies.set(file.alias, new DependencyMap(file, references));
-        }
+        const content = await readFile(file.absolutePath);
+        const references = await preprocessor.parse(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
 
-        dependencyMaps.push(dependencies);
-        continue;
+        dependencies.set(file.alias, new DependencyMap(file, references));
       }
+
+      dependencyMaps.push(dependencies);
+      handledExtensions.add(extension);
+    }
+
+    for (const [extension, contentType] of this.#extensions.entries()) {
+      if (handledExtensions.has(extension)) continue;
 
       const parser = this.#parsers.get(contentType);
 
@@ -343,9 +348,18 @@ export class StaticExtension implements Extension, StaticAssetExtension {
       for (let i = 0; i < files.length; i++) {
         let file = files[i];
 
+        if (file.extension !== extension) continue;
+
         const content = await readFile(file.absolutePath);
-        const references = await parser.parse(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
-        dependencies.set(file.alias, new DependencyMap(file, references));
+        try {
+          const references = await parser.parse(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
+          dependencies.set(file.alias, new DependencyMap(file, references));
+        } catch (err) {
+          console.error(err);
+          console.warn(`Something went wrong when parsing ${file.absolutePath}`);
+
+          process.exit(1)
+        }
       }
 
       dependencyMaps.push(dependencies);
@@ -375,11 +389,22 @@ export class StaticExtension implements Extension, StaticAssetExtension {
         if (preprocessor != null) {
           const content = await readFile(file.absolutePath);
 
-          ctx.body = await preprocessor.process(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
+          try {
+            ctx.body = await preprocessor.process(
+              new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
+          } catch (err) {
+            console.error(err);
+            throw err;
+          }
         } else if (parser != null) {
           const content = await readFile(file.absolutePath);
 
+          try {
           ctx.body = await parser.update(new Blob([content]), file, this.#filesByURL, this.#filesByAlias);
+          } catch (err) {
+            console.error(err);
+            throw err;
+          }
         } else {
           ctx.body = Readable.toWeb(createReadStream(file.absolutePath)) as ReadableStream;
         }

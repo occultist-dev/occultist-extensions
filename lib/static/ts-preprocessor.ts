@@ -1,8 +1,9 @@
-import {createPrinter, createSourceFile, factory, forEachChild, isCallExpression, isImportDeclaration, isStringLiteral, NewLineKind, type Node, ScriptTarget, type SourceFile, type StringLiteral, SyntaxKind, transform, type TransformerFactory, visitEachChild, visitNode} from 'typescript';
+import {createPrinter, createSourceFile, factory, forEachChild, isCallExpression, isImportDeclaration, isStringLiteral, ModuleKind, NewLineKind, type Node, ScriptTarget, type SourceFile, type StringLiteral, SyntaxKind, transform, type TransformerFactory, transpileModule, visitEachChild, visitNode} from 'typescript';
 import {type FileInfo} from './file-info.ts';
 import type {FilesByAlias, FilesByURL, ReferenceDetails, ReferencePreprocessor} from './types.ts';
 import {referencedFile} from './referenced-file.ts';
-import {referencedDependancy} from './referenceURL.ts';
+import {referencedDependency} from './referenceURL.ts';
+import {minify} from 'terser';
 
 
 export class TSReferencePreprocessor implements ReferencePreprocessor {
@@ -30,7 +31,7 @@ export class TSReferencePreprocessor implements ReferencePreprocessor {
       if (isImportDeclaration(node) && node.moduleSpecifier) {
         const reference = (node.moduleSpecifier as StringLiteral).text;
 
-        references.push(referencedDependancy(
+        references.push(referencedDependency(
           reference,
           file,
           filesByURL,
@@ -45,7 +46,7 @@ export class TSReferencePreprocessor implements ReferencePreprocessor {
       ) {
         const reference = node.arguments[0].text;
 
-        references.push(referencedDependancy(
+        references.push(referencedDependency(
           reference,
           file,
           filesByURL,
@@ -85,16 +86,18 @@ export class TSReferencePreprocessor implements ReferencePreprocessor {
             filesByURL,
             filesByAlias,
           );
-          const literal = factory.createStringLiteral(ref.url);
 
+          if (ref != null) {
+            const literal = factory.createStringLiteral(ref.url);
 
-          return factory.updateImportDeclaration(
-            node,
-            node.modifiers,
-            node.importClause,
-            literal,
-            node.attributes,
-          );
+            return factory.updateImportDeclaration(
+              node,
+              node.modifiers,
+              node.importClause,
+              literal,
+              node.attributes,
+            );
+          }
         } else if (
           isCallExpression(node) &&
           node.expression.kind === SyntaxKind.ImportKeyword &&
@@ -128,10 +131,12 @@ export class TSReferencePreprocessor implements ReferencePreprocessor {
     const printer = createPrinter({ newLine: NewLineKind.LineFeed });
     const transformed = result.transformed[0];
     const code = printer.printFile(transformed as SourceFile);
+    const javascript = transpileModule(code, { compilerOptions: { module: ModuleKind.ES2022 }});
+    //const minified = await minify(javascript.outputText);
 
     result.dispose();
 
-    return new Blob([code], { type: this.output });
+    return new Blob([javascript.outputText], { type: this.output });
   }
 
 }

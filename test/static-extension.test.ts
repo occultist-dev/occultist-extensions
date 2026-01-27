@@ -32,8 +32,6 @@ test('It preprocesses typescript files', {only: true}, async () => {
   const res = await registry.handleRequest(
     new Request(main.url)
   );
-
-  console.log(await res.text());
 });
 
 test('It parses HTML files', async () => {
@@ -55,8 +53,6 @@ test('It parses HTML files', async () => {
   const res = await registry.handleRequest(
     new Request(html.url)
   );
-
-  console.log(await res.text());
 });
 
 test('It parses javascript files', async () => {

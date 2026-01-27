@@ -12,6 +12,11 @@ export function referencedFile(
     const ref = filesByAlias.get(reference);
 
     return ref;
+  } else if (reference.startsWith('#')) {
+    const alias = reference.replace(/^\#/, '/');
+    const ref = filesByAlias.get(alias);
+
+    return ref;
   }
 
   const url = new URL(reference, containingFile.aliasURL).toString();

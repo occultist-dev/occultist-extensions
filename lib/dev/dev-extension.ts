@@ -9,8 +9,10 @@ import {resolve} from 'node:path';
 import {StaticExtension} from '../static/static-extension.ts';
 import type {StaticFile} from '../static/types.ts';
 import type {CommonOctironArgs, SSRModule, SSRView} from './types.ts';
+import {type PageTemplatePage, renderPageTemplate} from './scripts.ts';
 
 
+const devExtensionSym = Symbol('DevExtension');
 
 /**
  * Used for adding meta information of the page's
@@ -73,6 +75,7 @@ const scriptNames = Object.keys(defaultDevExtensionScripts);
 const defaultDevExtensionStyles = {
   'octiron.css': '@octiron/octiron/dist/octiron.css',
 } as const;
+const styleNames = Object.keys(defaultDevExtensionStyles);
 
 
 export type DevExtensionArgs<
@@ -102,6 +105,7 @@ export class DevExtension<
   #registry: Registry;
   #octironArgs: CommonOctironArgs;
   #layout?: string;
+  #styles: string[];
   #groups: RenderGroup<GroupName>[];
   #groupByName: Map<string, RenderGroup<GroupName>> = new Map();
   #layoutsDir: string;
@@ -109,10 +113,12 @@ export class DevExtension<
   #defaultLayout?: ParsedResult;
   #layouts: Map<string, ParsedResult>;
   #static: StaticExtension;
+  #defaultPages: PageTemplatePage[] = [];
+  #groupPages: Map<GroupName, PageTemplatePage[]> = new Map();
 
   constructor(args: DevExtensionArgs<GroupName>) {
     this.#registry = args.registry;
-
+    this.#styles = args.styles ?? [];
     this.#layout = args.layout;
     this.#layoutsDir = args.layoutsDir;
     this.#pagesDir = args.pagesDir;
@@ -155,9 +161,20 @@ export class DevExtension<
       registry: args.registry,
       cache: args.cache ?? new MemoryCache(args.registry),
       files: staticFiles,
+      directories: [
+        {
+          alias: 'layouts',
+          path: args.layoutsDir,
+        },
+        {
+          alias: 'pages',
+          path: args.pagesDir,
+        },
+      ],
     });
 
     this.#registry.registerExtension(this);
+    this.#registry.addEventListener('afterfinalize', this.#preloadRenderGroups);
   }
 
   setup(): ReadableStream {
@@ -201,6 +218,37 @@ export class DevExtension<
     writable.close();
   }
 
+  #preloadRenderGroups = () => {
+    const handlers = this.#registry.query({
+      contentType: 'text/html',
+      meta: devExtensionSym,
+    });
+
+    for (let i = 0, length = handlers.length; i < length; i++) {
+      const handler = handlers[i];
+      const renderGroup: GroupName | undefined = handler.meta[renderGroupSym] as GroupName
+      const pagePath: string = handler.meta[pagePathSym] as string;
+      const staticAsset = this.#registry.getStaticAsset(`pages/${pagePath}.ts`);
+
+      if (renderGroup != null && this.#groupPages.has(renderGroup)) {
+        this.#groupPages.get(renderGroup).push({
+          importPath: staticAsset.url,
+          re: handler.action.route.regexpRaw,
+        });
+      } else if (renderGroup != null) {
+        this.#groupPages.set(renderGroup, [{
+          importPath: staticAsset.url,
+          re: handler.action.route.regexpRaw,
+        }]);
+      } else {
+        this.#defaultPages.push({
+          importPath: staticAsset.url,
+          re: handler.action.route.regexpRaw,
+        });
+      }
+    }
+  }
+
   /**
    * Loads module for a page and its render group.
    *
@@ -208,19 +256,24 @@ export class DevExtension<
    * the pages directory.
    */
   async loadModule(pagePath: string): Promise<SSRModule> {
+    let isTypescript: boolean = true;
     let mod: SSRModule | undefined;
     const tsFile = resolve(this.#pagesDir, pagePath + '.ts');
     const jsFile = resolve(this.#pagesDir, pagePath + '.js');
+
     try {
       await stat(tsFile);
-      mod = await import(tsFile);
-    } catch {
-      try {
-        await stat(jsFile);
-        mod = await import(jsFile);
-      } catch {}
+    } catch (err) {
+      isTypescript = false;
     }
 
+    if (isTypescript) {
+      mod = await import(tsFile);
+    } else {
+      await stat(jsFile);
+      mod = await import(jsFile);
+    }
+    
     if (mod == null) throw new Error('Module for page "' + pagePath + '" not found');
 
     return mod;
@@ -247,6 +300,7 @@ export class DevExtension<
     return {
       contentType: 'text/html',
       meta: {
+        [devExtensionSym]: true,
         [pagePathSym]: pagePath,
         [renderGroupSym]: renderGroup,
       },
@@ -268,13 +322,10 @@ export class DevExtension<
 
     if (layout == null || !layout.mountable) return;
 
-    const mod = await this.loadModule(pagePath);
-
-    let head: string = '';
-    
-    for (const staticAsset of this.#static.queryStaticAssets(scriptNames)) {
-      head += `<script type="module" src="${staticAsset.url}"></script>`;
-    }
+    const [mod, head] = await Promise.all([
+      this.loadModule(pagePath),
+      this.#renderHead(renderGroup),
+    ]);
     
     await this.#renderPage(
       ctx,
@@ -282,6 +333,49 @@ export class DevExtension<
       mod,
       head,
     );
+  }
+
+  async #renderHead(renderGroup?: GroupName): Promise<string> {
+    let head: string = '';
+    let imports = {};
+    let mithrilURL: string;
+    let octironURL: string;
+    let pages: PageTemplatePage[];
+    let styles: string = '';
+
+    for (const staticAsset of this.#registry.queryStaticAssets([...styleNames, ...this.#styles])) {
+      head += `<link class=ssr rel=stylesheet href=${staticAsset.url} />`;
+    }
+
+    const staticAssets = this.#registry.queryStaticAssets(scriptNames);
+    for (let i = 0, length = staticAssets.length; i < length; i++) {
+      const staticAsset = staticAssets[i];
+
+      imports[staticAsset.alias] = staticAsset.url;
+
+      if (staticAsset.alias === 'mithril') {
+        mithrilURL = staticAsset.url;
+      } else if (staticAsset.alias === '@octiron/octiron') {
+        octironURL = staticAsset.url;
+      }
+    }
+
+    head += `<script class=ssr type="importmap">${JSON.stringify({ imports })}</script>`;
+
+    if (renderGroup == null) {
+      pages = this.#defaultPages;
+    } else {
+      pages = this.#groupPages.get(renderGroup) ?? [];
+    }
+
+    head += renderPageTemplate({
+      mithrilURL,
+      octironURL,
+      octironArgs: this.#octironArgs,
+      pages,
+    });
+
+    return head;
   }
 
   /**
@@ -414,7 +508,7 @@ export class DevExtension<
 
     for (let i = 0; i < rendered.length; i++) {
       const [mountPoint, fragment] = rendered[i];
-      
+
       html += mountPoint.part;
       html += fragment;
       renderedMountPoints.push(mountPoint.id);
