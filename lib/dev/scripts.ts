@@ -13,6 +13,7 @@ export type PageTemplatePage = {
 export type PageTemplateArgs = {
   mithrilURL: string;
   octironURL: string;
+  typeHandlersURL: string;
   octironArgs: CommonOctironArgs;
   pages: PageTemplatePage[];
 };
@@ -21,6 +22,9 @@ export const pageTemplate = `\
 <script class=ssr type=module>
 import m from '{{mithrilURL}}';
 import { octiron, jsonLDHandler, longformHandler } from '{{octironURL}}';
+
+// could be unused.
+{{typeHandlersImport}}
 
 // Cheap trick to stop Mithril from wiping the head element.
 // This causes css to be re-imported but avoids a flash of existing css
@@ -36,6 +40,7 @@ const page = {};
 const pages = {{pages}};
 const mountPoints = JSON.parse(document.getElementById('mount-points').innerText);
 const o = octiron.fromInitialState(Object.assign({{octironArgs}}), {
+  {{typeHandlersArg}}
   handlers: [
     jsonLDHandler,
     longformHandler,
@@ -170,6 +175,18 @@ export function renderPageTemplate(args: PageTemplateArgs) {
       return args.mithrilURL ?? '';
     } else if (variable === 'octironURL') {
       return args.octironURL ?? '';
+    } else if (variable === 'typeHandlersImport') {
+      if (args.typeHandlersURL != null) {
+        return `import {typeHandlers} from '${args.typeHandlersURL}'`;
+      }
+
+      return '';
+    } else if (variable === 'typeHandlersArg') {
+      if (args.typeHandlersURL != null) {
+        return 'typeHandlers,';
+      }
+
+      return '';
     } else if (variable === 'octironArgs') {
       return JSON.stringify(args.octironArgs) ?? '{}';
     } else if (variable === 'pages') {

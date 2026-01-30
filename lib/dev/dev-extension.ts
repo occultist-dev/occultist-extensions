@@ -1,30 +1,37 @@
 import {longform, type ParsedResult} from '@longform/longform';
 import {expand, JSONLDContextStore, type JSONObject} from '@occultist/mini-jsonld';
-import {MemoryCache, type ActionSpec, type AuthState, type Cache, type Context, type ContextState, type Extension, type HandlerArgs, type Registry} from "@occultist/occultist";
-import {type JSONLDHandler, longformHandler, octiron, type StoreArgs, type Fetcher, type ResponseHook} from '@octiron/octiron';
+import type {HandlerDefinition, StaticAsset, ActionSpec, AuthState, Cache, Context, ContextState, Extension, HandlerArgs, Registry} from "@occultist/occultist";
+import {MemoryCache} from "@occultist/occultist";
+import {longformHandler, octiron, type Fetcher, type JSONLDHandler, type ResponseHook, type StoreArgs} from '@octiron/octiron';
 import m from 'mithril';
 import render from 'mithril-node-render';
-import {readFile, stat} from 'node:fs/promises';
-import {resolve} from 'node:path';
+import {readdir, readFile} from 'node:fs/promises';
+import {join, resolve} from 'node:path';
 import {StaticExtension} from '../static/static-extension.ts';
 import type {StaticFile} from '../static/types.ts';
-import type {CommonOctironArgs, SSRModule, SSRView} from './types.ts';
-import {type PageTemplatePage, renderPageTemplate} from './scripts.ts';
+import {AsyncImports} from './async-imports.ts';
+import {renderPageTemplate, type PageTemplatePage} from './scripts.ts';
+import {SSRPageCache} from './ssr-page-cache.ts';
+import {SSRRenderGroupCache} from './ssr-render-group-cache.ts';
+import type {CommonOctironArgs, SSRView} from './types.ts';
+import {Parser} from 'acorn';
 
-
-const devExtensionSym = Symbol('DevExtension');
+/**
+ * Symbol used for locating action handlers created via this extension.
+ */
+const devExtensionSym = Symbol('https://extensions.occultist.dev/dev-extension');
 
 /**
  * Used for adding meta information of the page's
  * javascript / typescript file.
  */
-const pagePathSym = Symbol('PagePath');
+const pagePathSym = Symbol('https://extensions.occultist.dev/dev-extension#page-path');
 
 /**
  * Used for adding meta information of the page's
  * render group.
  */
-const renderGroupSym = Symbol('RenderGroup');
+const renderGroupSym = Symbol('https://extensions.occultist.dev/dev-extension#render-group');
 
 
 const defaultLayoutContent = `\
@@ -55,7 +62,7 @@ export type DevExtensionScripts = {
 
 export type DevExtensionStyles = {
   'octiron.css': string;
-}
+};
 
 export type DevExtensionDeps = {
   scripts: Partial<DevExtensionScripts>;
@@ -70,11 +77,13 @@ const defaultDevExtensionScripts: DevExtensionScripts = {
   '@octiron/octiron': '@octiron/octiron/dist/octiron.js',
   '@occultist/mini-jsonld': '@occultist/mini-jsonld/dist/expand.js',
 } as const;
+
 const scriptNames = Object.keys(defaultDevExtensionScripts);
 
 const defaultDevExtensionStyles = {
   'octiron.css': '@octiron/octiron/dist/octiron.css',
 } as const;
+
 const styleNames = Object.keys(defaultDevExtensionStyles);
 
 
@@ -86,16 +95,15 @@ export type DevExtensionArgs<
   acceptMap?: StoreArgs['acceptMap'];
   registry: Registry;
   cache?: Cache;
-  scripts?: string[];
-  styles?: string[];
-  layout?: string;
   groups?: RenderGroup<GroupName>[];
   nodeModulesDir: string;
-  layoutsDir: string;
-  pagesDir: string;
+  appDir: string;
   deps?: Partial<DevExtensionDeps>;
 };
 
+/**
+ * Manages SSR of Mithril, Octiron and Longform applications.
+ */
 export class DevExtension<
   GroupName extends string = string,
 > implements Extension {
@@ -104,24 +112,33 @@ export class DevExtension<
   
   #registry: Registry;
   #octironArgs: CommonOctironArgs;
-  #layout?: string;
-  #styles: string[];
   #groups: RenderGroup<GroupName>[];
-  #groupByName: Map<string, RenderGroup<GroupName>> = new Map();
+
+  /**
+   * Location of file defining the global default type handlers.
+   */
+  #defaultsDir: string;
+  #globalsDir: string;
   #layoutsDir: string;
   #pagesDir: string;
-  #defaultLayout?: ParsedResult;
-  #layouts: Map<string, ParsedResult>;
-  #static: StaticExtension;
-  #defaultPages: PageTemplatePage[] = [];
-  #groupPages: Map<GroupName, PageTemplatePage[]> = new Map();
+  #typeHandlersDir: string;
+  #componentsDir: string;
+  #asyncImports = new AsyncImports();
+
+  /**
+   * Cache of all page info for faster SSR rendering.
+   */
+  #ssrPages: Map<string, SSRPageCache> = new Map();
 
   constructor(args: DevExtensionArgs<GroupName>) {
     this.#registry = args.registry;
-    this.#styles = args.styles ?? [];
-    this.#layout = args.layout;
-    this.#layoutsDir = args.layoutsDir;
-    this.#pagesDir = args.pagesDir;
+    this.#defaultsDir = resolve(args.appDir, 'defaults');
+    this.#globalsDir = resolve(args.appDir, 'globals');
+    this.#layoutsDir = resolve(args.appDir, 'layouts');
+    this.#pagesDir = resolve(args.appDir, 'pages'),
+    this.#typeHandlersDir = resolve(args.appDir, 'type-handlers'),
+    this.#componentsDir = resolve(args.appDir, 'components'),
+
     this.#groups = args.groups ?? [];
     this.#octironArgs = {
       rootIRI: args.registry.rootIRI,
@@ -129,10 +146,6 @@ export class DevExtension<
       aliases: args.aliases,
       acceptMap: args.acceptMap,
     };
-
-    for (let i = 0; i < this.#groups.length; i++) {
-      this.#groupByName.set(this.#groups[i].name, this.#groups[i]);
-    }
     
     const scriptDeps: DevExtensionScripts = args.deps?.scripts != null
       ? { ...defaultDevExtensionScripts, ...args.deps.scripts }
@@ -157,24 +170,41 @@ export class DevExtension<
       });
     }
 
-    this.#static = new StaticExtension({
+    new StaticExtension({
       registry: args.registry,
       cache: args.cache ?? new MemoryCache(args.registry),
       files: staticFiles,
       directories: [
         {
+          alias: 'globals',
+          path: this.#globalsDir,
+        },
+        {
+          alias: 'defaults',
+          path: this.#defaultsDir,
+        },
+        {
           alias: 'layouts',
-          path: args.layoutsDir,
+          path: this.#layoutsDir,
         },
         {
           alias: 'pages',
-          path: args.pagesDir,
+          path: this.#pagesDir,
+        },
+        {
+          alias: 'type-handlers',
+          path: this.#typeHandlersDir,
+        },
+        {
+          alias: 'components',
+          path: this.#componentsDir,
         },
       ],
     });
 
+    // important to register this before the static extension.
     this.#registry.registerExtension(this);
-    this.#registry.addEventListener('afterfinalize', this.#preloadRenderGroups);
+    this.#registry.addEventListener('afterfinalize', this.#preloadPages);
   }
 
   setup(): ReadableStream {
@@ -187,96 +217,320 @@ export class DevExtension<
 
   async #setup(writable: WritableStream): Promise<void> {
     const writer = writable.getWriter();
+    const asyncImports = new AsyncImports();
 
-    writer.write('Compiling longform layouts');
-    let layout: string;
+    // global
+    try {
+      try {
+        const path = join(this.#defaultsDir, 'type-handlers.ts');
+        console.info(`Trying type handlers '${path}'`);
 
-    if (this.#layoutsDir != null && this.#layout != null) {
-      const path = resolve(this.#layoutsDir, this.#layout);
-      layout = await readFile(path, 'utf-8');
-    } else {
-      layout = defaultLayoutContent;
+        const mod = await import(path);
+        
+        asyncImports.typeHandlers = mod.typeHandlers;
+      } catch {}
+
+      if (asyncImports.typeHandlers == null) {
+        const path = join(this.#defaultsDir, 'type-handlers.js');
+
+        console.info(`Trying type handlers '${path}'`);
+
+        const mod = await import(path);
+ 
+        asyncImports.typeHandlers = mod.typeHandlers;
+      }
+
+      console.info(`Imported "default/type-handlers.ts"`);
+    } catch {
+      console.warn(`No default type handlers found at "defaults/type-handlers.ts"`);
+      asyncImports.typeHandlers = [];
     }
-    this.#defaultLayout = longform(layout);
-                                      
-    for (let i = 0; i < this.#groups  .length; i++) {
-      if (this.#groups[i].layout == null) {
-        this.#layouts.set(this.#groups[i].name, this.#defaultLayout);
 
-        continue;
-      };
-
-      const path = resolve(this.#layoutsDir, this.#groups[i].layout);
-      const layout = await readFile(path, 'utf-8');
-      const output = longform(layout);
-
-      this.#layouts.set(this.#groups[i].name, output);
+    // groups
+    console.log(`Opening default layout at 'defaults/layout.lf'`);
+    
+    try {
+      asyncImports.defaultLayout = await readFile(join(this.#defaultsDir, 'layout.lf'), 'utf-8');
+    } catch {
+      asyncImports.defaultLayout = defaultLayoutContent;
     }
+
+    for (const fileName of await readdir(this.#layoutsDir)) {
+      if (fileName.endsWith('.lf')) {
+        const path = join(this.#layoutsDir, fileName);
+
+        console.info(`Opening layout '${path}'`);
+
+        const contents = await readFile(path, 'utf-8');
+
+        asyncImports.groupLayouts.set(path, contents);
+      }
+    }
+
+    // pages
+    for (const fileName of await readdir(this.#pagesDir)) {
+      if (fileName.endsWith('.ts') || fileName.endsWith('.js')) {
+        const path = join(this.#pagesDir, fileName);
+
+        console.info(`Importing page module '${path}'`);
+
+        const mod = await import(path);
+        const views: Map<string, SSRView> = new Map();
+
+        for (const [key, value] of Object.entries(mod)) {
+          if (typeof value === 'function') views.set(key, value as SSRView);
+        }
+
+        asyncImports.pageViews.set(path, views);
+      }
+    }
+
+    this.#asyncImports = asyncImports;
 
     writer.write('Done');
     writer.releaseLock();
     writable.close();
   }
 
-  #preloadRenderGroups = () => {
+  /**
+   * Fetches page info for all pages and related content created via
+   * the registry and pre-caches their content for faster SSR rendering.
+   */
+  #preloadPages = () => {
+    let typeHandlersJSAsset: StaticAsset | undefined;
+    let resetCSSAsset: StaticAsset | undefined;
+    let appCSSStaticAsset: StaticAsset | undefined;
+    let defaultCSSStaticAsset: StaticAsset | undefined;
+    const layoutCSSAssets: Map<string, StaticAsset> = new Map();
+    const pageCSSAssets: Map<string, StaticAsset> = new Map();
+    const asyncImports = this.#asyncImports;
+
+    for (const staticAsset of this.#registry.queryStaticDirectories(['globals'])) {
+      if (staticAsset.contentType === 'text/css') {
+        if (staticAsset.alias === 'globals/reset.css') {
+          resetCSSAsset = staticAsset;
+        } else if (staticAsset.alias === 'globals/app.css') {
+          appCSSStaticAsset = staticAsset;
+        }
+      }
+    }
+
+    for (const staticAsset of this.#registry.queryStaticDirectories(['defaults'])) {
+      if (staticAsset.contentType === 'text/css' && staticAsset.alias === 'defaults/default.css') {
+        defaultCSSStaticAsset = staticAsset;
+      } else if (staticAsset.contentType === 'application/javascript' &&
+                 typeHandlersJSAsset == null && (
+                 staticAsset.alias === '/defaults/type-handlers.ts' ||
+                 staticAsset.alias === '/defaults/type-handlers.js')) {
+        typeHandlersJSAsset = staticAsset;
+      }
+    }
+
+    // Query the registry for all css files located in the layouts directory.
+    for (const staticAsset of this.#registry.queryStaticDirectories(['layouts'])) {
+      if (staticAsset.contentType === 'text/css') {
+        layoutCSSAssets.set(staticAsset.alias, staticAsset);
+      }
+    }
+
+    // Query the registry for all css files located in the layouts directory.
+    for (const staticAsset of this.#registry.queryStaticDirectories(['pages'])) {
+      if (staticAsset.contentType === 'text/css') {
+        pageCSSAssets.set(staticAsset.alias, staticAsset);
+      }
+    }
+
+    let globalHead = '';
+
+    for (const staticAsset of this.#registry.queryStaticAssets(styleNames)) {
+      globalHead += `<link class=ssr rel=stylesheet href=${staticAsset.url} />`;
+    }
+
+    if (resetCSSAsset != null) {
+      globalHead += `<link rel="stylesheet" href="${resetCSSAsset.url}" />`;
+    }
+
+    if (appCSSStaticAsset != null) {
+      globalHead += `<link rel="stylesheet" href="${appCSSStaticAsset.url}" />`;
+    }
+
+    let mithrilURL: string;
+    let octironURL: string;
+    const imports = {};
+    const staticAssets = this.#registry.queryStaticAssets(scriptNames);
+    for (let i = 0, length = staticAssets.length; i < length; i++) {
+      const staticAsset = staticAssets[i];
+
+      imports[staticAsset.alias] = staticAsset.url;
+
+      if (staticAsset.alias === 'mithril') {
+        mithrilURL = staticAsset.url;
+      } else if (staticAsset.alias === '@octiron/octiron') {
+        octironURL = staticAsset.url;
+      }
+    }
+
+    globalHead += `<script class=ssr type="importmap">${JSON.stringify({ imports })}</script>`;
+
+    let defaultSSRRenderGroup: SSRRenderGroupCache | undefined;
+    const ssrRenderGroups: Map<string, SSRRenderGroupCache> = new Map();
+
+    // get the default page group
+    let defaultCSS: string = '';
+    const layout: ParsedResult = longform(asyncImports.defaultLayout);
+    const layoutCSSStaticAsset = layoutCSSAssets.get(`defaults/layout.css`);
+
+    if (layoutCSSStaticAsset != null) {
+      defaultCSS = `<link rel="stylesheet" href="${layoutCSSStaticAsset.url}" />`;
+    } else if (defaultCSSStaticAsset != null) {
+      defaultCSS = `<link rel="stylesheet" href="${defaultCSSStaticAsset.url}" />`;
+    }
+    
+    defaultSSRRenderGroup = new SSRRenderGroupCache(
+      'default',
+      globalHead,
+      defaultCSS,
+      layout,
+    );
+
+    // fetch all named page groups
+    for (let i = 0, length = this.#groups.length; i < length; i++) {
+      const { name, layout: layoutPath } = this.#groups[i];
+
+      // if the layout is null the default page group will be used.
+      if (layoutPath == null) continue;
+
+      let defaultCSS: string = '';
+      const contents = asyncImports.groupLayouts.get(join(this.#layoutsDir, layoutPath + '.lf'));
+      const layout = longform(contents);
+      const layoutCSSStaticAsset = layoutCSSAssets.get(`layouts/${layoutPath}.css`);
+
+      if (layoutCSSStaticAsset != null) {
+        defaultCSS = `<link rel="stylesheet" href="${layoutCSSStaticAsset.url}" />`;
+      } else if (defaultCSSStaticAsset != null) {
+        defaultCSS = `<link rel="stylesheet" href="${defaultCSSStaticAsset.url}" />`;
+      }
+      
+      ssrRenderGroups.set(name, new SSRRenderGroupCache(
+        name,
+        globalHead,
+        defaultCSS,
+        layout,
+      ));
+    }
+
+    // Need info on each Javascript file to configure the client side router.
+    const pageStaticAssets = new Map<string, StaticAsset>();
+
+    for (const staticAsset of this.#registry.queryStaticDirectories(['pages'])) {
+      if (staticAsset.contentType === 'application/javascript') {
+        pageStaticAssets.set(staticAsset.alias, staticAsset);
+      }
+    }
+
+    // get all handlers for html endpoints managed by the dev extension.
     const handlers = this.#registry.query({
       contentType: 'text/html',
       meta: devExtensionSym,
     });
 
+    const defaultModHandlers: HandlerDefinition[] = [];
+    const modHandlersByGroup: Map<string, HandlerDefinition[]> = new Map();
     for (let i = 0, length = handlers.length; i < length; i++) {
       const handler = handlers[i];
-      const renderGroup: GroupName | undefined = handler.meta[renderGroupSym] as GroupName
-      const pagePath: string = handler.meta[pagePathSym] as string;
-      const staticAsset = this.#registry.getStaticAsset(`pages/${pagePath}.ts`);
+      const groupName = handler.meta[renderGroupSym];
 
-      if (renderGroup != null && this.#groupPages.has(renderGroup)) {
-        this.#groupPages.get(renderGroup).push({
-          importPath: staticAsset.url,
-          re: handler.action.route.regexpRaw,
-        });
-      } else if (renderGroup != null) {
-        this.#groupPages.set(renderGroup, [{
-          importPath: staticAsset.url,
-          re: handler.action.route.regexpRaw,
-        }]);
+      if (typeof groupName === 'string') {
+        if (modHandlersByGroup.has(groupName)) {
+          modHandlersByGroup.get(groupName).push(handler);
+        } else {
+          modHandlersByGroup.set(groupName, [handler]);
+        }
       } else {
-        this.#defaultPages.push({
-          importPath: staticAsset.url,
-          re: handler.action.route.regexpRaw,
-        });
+        defaultModHandlers.push(handler);
       }
     }
-  }
 
-  /**
-   * Loads module for a page and its render group.
-   *
-   * Modules can be in javascript or typescript and are located in
-   * the pages directory.
-   */
-  async loadModule(pagePath: string): Promise<SSRModule> {
-    let isTypescript: boolean = true;
-    let mod: SSRModule | undefined;
-    const tsFile = resolve(this.#pagesDir, pagePath + '.ts');
-    const jsFile = resolve(this.#pagesDir, pagePath + '.js');
+    const ssrPages: Map<string, SSRPageCache> = new Map();
 
-    try {
-      await stat(tsFile);
-    } catch (err) {
-      isTypescript = false;
+    for (let i = 0, length = handlers.length; i < length; i++) {
+      let ssrRenderGroup: SSRRenderGroupCache;
+      const handler = handlers[i];
+      const groupName = handler.meta[renderGroupSym];
+      const pagePath = handler.meta[pagePathSym];
+
+      if (typeof pagePath !== 'string')
+        throw new Error(`Handler '${handler.action.route.template}' not created via Dev Extension`);
+
+      if (typeof groupName === 'string') {
+        ssrRenderGroup = ssrRenderGroups.get(groupName) ?? defaultSSRRenderGroup;
+      } else {
+        ssrRenderGroup = defaultSSRRenderGroup;
+      }
+
+      let head: string = ssrRenderGroup.globalHead;
+      let views: Map<string, SSRView>;
+
+      try {
+        views = asyncImports.pageViews.get(join(this.#pagesDir, `${pagePath}.ts`));
+      } catch { }
+
+      if (views == null) {
+        try {
+          views = asyncImports.pageViews.get(join(this.#pagesDir, `${pagePath}.js`));
+        } catch (err) {
+          throw new Error(`Module for page '${handler.action.route.template} not found`);
+        }
+      }
+
+      const pageCSSStaticAsset = pageCSSAssets.get(`layouts/${pagePath}.css`);
+
+      if (pageCSSStaticAsset != null) {
+        head += `<link rel="stylesheet" href="${pageCSSStaticAsset.url}" />`;
+      } else {
+        head += ssrRenderGroup.defaultCSS ?? '';
+      }
+
+      let modHandlers: HandlerDefinition[];
+      
+      if (typeof groupName === 'string') {
+        modHandlers = modHandlersByGroup.get(groupName);
+      } else {
+        modHandlers = defaultModHandlers;
+      }
+
+      let staticAsset: StaticAsset;
+      const pages: PageTemplatePage[] = [];
+
+      for (let i = 0, length = modHandlers.length; i < length; i++) {
+        staticAsset = pageStaticAssets.get(`pages/${pagePath}.ts`)
+          ?? pageStaticAssets.get(`pages/${pagePath}.js`);
+
+        pages.push({
+          re: modHandlers[i].action.route.regexpRaw,
+          importPath: staticAsset.url,
+        });
+      }
+
+      head += renderPageTemplate({
+        mithrilURL,
+        octironURL,
+        typeHandlersURL: typeHandlersJSAsset?.url,
+        octironArgs: this.#octironArgs,
+        pages,
+      });
+
+      ssrPages.set(pagePath, new SSRPageCache(
+        pagePath,
+        head,
+        ssrRenderGroup.layout,
+        views,
+        asyncImports.typeHandlers,
+      ));
     }
 
-    if (isTypescript) {
-      mod = await import(tsFile);
-    } else {
-      await stat(jsFile);
-      mod = await import(jsFile);
-    }
-    
-    if (mod == null) throw new Error('Module for page "' + pagePath + '" not found');
-
-    return mod;
+    this.#ssrPages = ssrPages;
+    this.#asyncImports = null;
   }
 
   /**
@@ -304,7 +558,7 @@ export class DevExtension<
         [pagePathSym]: pagePath,
         [renderGroupSym]: renderGroup,
       },
-      handler: (ctx) => this.renderPage(ctx, pagePath, renderGroup),
+      handler: (ctx) => this.renderPage(ctx, pagePath),
     };
   }
 
@@ -313,69 +567,15 @@ export class DevExtension<
    * to the request handler's context.
    *
    * @param ctx The handler's request context.
-   * @param pagePath Absolute path to the 
+   * @param pagePath Absolute path to the page.
    */
-  async renderPage(ctx: Context, pagePath: string, renderGroup?: GroupName): Promise<void> {
-    const layout = renderGroup == null
-      ? this.#defaultLayout
-      : this.#layouts.get(renderGroup) ?? this.#defaultLayout;
-
-    if (layout == null || !layout.mountable) return;
-
-    const [mod, head] = await Promise.all([
-      this.loadModule(pagePath),
-      this.#renderHead(renderGroup),
-    ]);
+  async renderPage(ctx: Context, pagePath: string): Promise<void> {
+    const page = this.#ssrPages.get(pagePath);
     
     await this.#renderPage(
       ctx,
-      layout,
-      mod,
-      head,
+      page,
     );
-  }
-
-  async #renderHead(renderGroup?: GroupName): Promise<string> {
-    let head: string = '';
-    let imports = {};
-    let mithrilURL: string;
-    let octironURL: string;
-    let pages: PageTemplatePage[];
-    let styles: string = '';
-
-    for (const staticAsset of this.#registry.queryStaticAssets([...styleNames, ...this.#styles])) {
-      head += `<link class=ssr rel=stylesheet href=${staticAsset.url} />`;
-    }
-
-    const staticAssets = this.#registry.queryStaticAssets(scriptNames);
-    for (let i = 0, length = staticAssets.length; i < length; i++) {
-      const staticAsset = staticAssets[i];
-
-      imports[staticAsset.alias] = staticAsset.url;
-
-      if (staticAsset.alias === 'mithril') {
-        mithrilURL = staticAsset.url;
-      } else if (staticAsset.alias === '@octiron/octiron') {
-        octironURL = staticAsset.url;
-      }
-    }
-
-    head += `<script class=ssr type="importmap">${JSON.stringify({ imports })}</script>`;
-
-    if (renderGroup == null) {
-      pages = this.#defaultPages;
-    } else {
-      pages = this.#groupPages.get(renderGroup) ?? [];
-    }
-
-    head += renderPageTemplate({
-      mithrilURL,
-      octironURL,
-      octironArgs: this.#octironArgs,
-      pages,
-    });
-
-    return head;
   }
 
   /**
@@ -408,12 +608,13 @@ export class DevExtension<
    * render in a single streaming pass. The Occultist.dev solution has various
    * mitigations to these issues and if the project is successful, improving the
    * SSR render strategy would be something to consider.
+   *
+   * @param ctx The request context.
+   * @param page The SSR Page object.
    */
   async #renderPage(
     ctx: Context,
-    layout: ParsedResult,
-    mod: Record<string, SSRView>,
-    headContent: string = '',
+    page: SSRPageCache,
   ): Promise<void> {
     let html = '';
     let count = 0;
@@ -437,6 +638,7 @@ export class DevExtension<
       responseHook,
       primary,
       alternatives,
+      typeHandlers: page.typeHandlers,
       handlers: [
         this.jsonLDHandler(),
         longformHandler,
@@ -474,14 +676,15 @@ export class DevExtension<
       mountpoint: ParsedResult['mountPoints'][0],
       fragment: string,
     ]>> = [];
-    for (let i = 0; i < layout.mountPoints.length; i++) {
+
+    for (let i = 0; i < page.layout.mountPoints.length; i++) {
       // A longform layout can set multiple mountpoints.
       // This behaviour has similar results to the server
       // islands architecture and uses Mithril's mounting
       // behaviour which can mount more than one DOM node
       // and be targeted by `m.redraw()` globally.
-      const mountPoint = layout.mountPoints[i];
-      const view = mod[mountPoint.id];
+      const mountPoint = page.layout.mountPoints[i];
+      const view = page.views.get(mountPoint.id);
 
       if (typeof view !== 'function') continue;
  
@@ -517,8 +720,8 @@ export class DevExtension<
     const initialState = o.store.toInitialState();
     const mountPointState = `<script id="mount-points" types="application/json">${JSON.stringify(renderedMountPoints)}</script>`;
 
-    html += layout.tail ?? '';
-    html = html.replace(/<\/head>/, headContent + '</head>');
+    html += page.layout.tail ?? '';
+    html = html.replace(/<\/head>/, page.head + '</head>');
     html = html.replace(/<\/body><\/html>$/, mountPointState + initialState + '</body></html>');
 
     // The store can have a http status set if an octiron selection has `{ mainEntity: true }` in

@@ -106,7 +106,7 @@ export type StaticExtensionArgs = {
  * to hashed actions.
  */
 export class StaticExtension implements Extension, StaticAssetExtension {
-  name = 'static';
+  name = 'https://occultist.dev/framework/static-extension';
   #loaded: boolean = false;
   #registry: Registry;
   #cache: Cache | undefined;
