@@ -13,7 +13,7 @@ export function referencedFile(
 
     return ref;
   } else if (reference.startsWith('#')) {
-    const alias = reference.replace(/^\#/, '/');
+    const alias = reference.replace(/^\#/, '');
     const ref = filesByAlias.get(alias);
 
     return ref;

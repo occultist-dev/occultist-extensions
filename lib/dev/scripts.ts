@@ -21,7 +21,7 @@ export type PageTemplateArgs = {
 export const pageTemplate = `\
 <script class=ssr type=module>
 import m from '{{mithrilURL}}';
-import { octiron, jsonLDHandler, longformHandler } from '{{octironURL}}';
+import { octiron, jsonLDHandler, longformHandler, problemDetailsJSONHandler } from '{{octironURL}}';
 
 // could be unused.
 {{typeHandlersImport}}
@@ -30,8 +30,15 @@ import { octiron, jsonLDHandler, longformHandler } from '{{octironURL}}';
 // This causes css to be re-imported but avoids a flash of existing css
 // being removed. A better approach would be to hydrate the head element
 // which is feasible since child elements of the head element are simple.
-document.head.vnodes = [];
+// document.head.vnodes = [];
 const headChildren = Array.from(document.querySelectorAll('head .ssr'));
+// document.head.vnodes = [
+//   {
+//     tag: '!',
+//     dom: headChildren,
+//   }
+// ],
+
 
 let mod;
 let location = new URL(document.location.toString());
@@ -39,13 +46,17 @@ let location = new URL(document.location.toString());
 const page = {};
 const pages = {{pages}};
 const mountPoints = JSON.parse(document.getElementById('mount-points').innerText);
-const o = octiron.fromInitialState(Object.assign({{octironArgs}}), {
+const o = octiron.fromInitialState(Object.assign({{octironArgs}}, {
   {{typeHandlersArg}}
   handlers: [
     jsonLDHandler,
     longformHandler,
+    problemDetailsJSONHandler,
   ],
-});
+}));
+
+// TODO: Remove me
+window.o = o;
 
 function getImportPath(pathname) {
   if (pathname === '') pathname = '/';
@@ -68,7 +79,7 @@ async function renderPage(initial) {
     delete page[key];
   }
 
-  for (let i = 0; i < mountPoints.length; i++) {
+  for (let i = 0, length = mountPoints.length; i < length; i++) {
     page[mountPoints[i]] = mod[mountPoints[i]];
   }
 
@@ -98,18 +109,18 @@ async function renderPage(initial) {
           ];
         }
 
-        if (view == null)
-          return null;
+        if (view == null) return null;
 
         return view({ o, location });
       },
     });
 
-    if (mountPoint.id === 'head') {
-      document.head.vnode = element.vnode;
-    } else {
+    //if (mountPoint.id === 'head') {
+    //  console.log('VNODE', element.vnode);
+    //  document.head.vnode = element.vnode;
+    //} else {
       mountPoint.replaceWith(element);
-    }
+    //}
 
     document.body.dataset['mounted'] = 'true';
     performance.mark('occultist:mount:end');
@@ -133,11 +144,11 @@ if (window.navigation != null) {
       return;
     }
     
+    console.log('PAGES', pages);
+    console.log('PATHNAME', url.pathname);
     importPath = getImportPath(url.pathname);
 
-    if (importPath == null) {
-      return;
-    }
+    if (importPath == null) return;
 
     event.intercept({
       async handler() {

@@ -2,11 +2,12 @@ import {longform, type ParsedResult} from '@longform/longform';
 import {expand, JSONLDContextStore, type JSONObject} from '@occultist/mini-jsonld';
 import type {HandlerDefinition, StaticAsset, ActionSpec, AuthState, Cache, Context, ContextState, Extension, HandlerArgs, Registry} from "@occultist/occultist";
 import {MemoryCache} from "@occultist/occultist";
-import {longformHandler, octiron, type Fetcher, type JSONLDHandler, type ResponseHook, type StoreArgs} from '@octiron/octiron';
+import {longformHandler, problemDetailsJSONHandler, octiron, type Fetcher, type JSONLDHandler, type ResponseHook, type StoreArgs} from '@octiron/octiron';
 import m from 'mithril';
 import render from 'mithril-node-render';
 import {readdir, readFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
+import type {StaticExtensionArgs} from '../static/static-extension.ts';
 import {StaticExtension} from '../static/static-extension.ts';
 import type {StaticFile} from '../static/types.ts';
 import {AsyncImports} from './async-imports.ts';
@@ -14,7 +15,7 @@ import {renderPageTemplate, type PageTemplatePage} from './scripts.ts';
 import {SSRPageCache} from './ssr-page-cache.ts';
 import {SSRRenderGroupCache} from './ssr-render-group-cache.ts';
 import type {CommonOctironArgs, SSRView} from './types.ts';
-import {Parser} from 'acorn';
+import {escapeScript} from './escape-script.ts';
 
 /**
  * Symbol used for locating action handlers created via this extension.
@@ -96,6 +97,8 @@ export type DevExtensionArgs<
   registry: Registry;
   cache?: Cache;
   groups?: RenderGroup<GroupName>[];
+  files?: StaticExtensionArgs['files'];
+  directories?: StaticExtensionArgs['directories'];
   nodeModulesDir: string;
   appDir: string;
   deps?: Partial<DevExtensionDeps>;
@@ -173,8 +176,12 @@ export class DevExtension<
     new StaticExtension({
       registry: args.registry,
       cache: args.cache ?? new MemoryCache(args.registry),
-      files: staticFiles,
+      files: [
+        ...(args.files ?? []),
+        ...staticFiles
+      ],
       directories: [
+        ...(args.directories ?? []),
         {
           alias: 'globals',
           path: this.#globalsDir,
@@ -320,8 +327,8 @@ export class DevExtension<
         defaultCSSStaticAsset = staticAsset;
       } else if (staticAsset.contentType === 'application/javascript' &&
                  typeHandlersJSAsset == null && (
-                 staticAsset.alias === '/defaults/type-handlers.ts' ||
-                 staticAsset.alias === '/defaults/type-handlers.js')) {
+                 staticAsset.alias === 'defaults/type-handlers.ts' ||
+                 staticAsset.alias === 'defaults/type-handlers.js')) {
         typeHandlersJSAsset = staticAsset;
       }
     }
@@ -347,11 +354,11 @@ export class DevExtension<
     }
 
     if (resetCSSAsset != null) {
-      globalHead += `<link rel="stylesheet" href="${resetCSSAsset.url}" />`;
+      globalHead += `<link class=ssr rel="stylesheet" href="${resetCSSAsset.url}" />`;
     }
 
     if (appCSSStaticAsset != null) {
-      globalHead += `<link rel="stylesheet" href="${appCSSStaticAsset.url}" />`;
+      globalHead += `<link class=ssr rel="stylesheet" href="${appCSSStaticAsset.url}" />`;
     }
 
     let mithrilURL: string;
@@ -381,9 +388,9 @@ export class DevExtension<
     const layoutCSSStaticAsset = layoutCSSAssets.get(`defaults/layout.css`);
 
     if (layoutCSSStaticAsset != null) {
-      defaultCSS = `<link rel="stylesheet" href="${layoutCSSStaticAsset.url}" />`;
+      defaultCSS = `<link class=ssr rel="stylesheet" href="${layoutCSSStaticAsset.url}" />`;
     } else if (defaultCSSStaticAsset != null) {
-      defaultCSS = `<link rel="stylesheet" href="${defaultCSSStaticAsset.url}" />`;
+      defaultCSS = `<link class=ssr rel="stylesheet" href="${defaultCSSStaticAsset.url}" />`;
     }
     
     defaultSSRRenderGroup = new SSRRenderGroupCache(
@@ -406,9 +413,9 @@ export class DevExtension<
       const layoutCSSStaticAsset = layoutCSSAssets.get(`layouts/${layoutPath}.css`);
 
       if (layoutCSSStaticAsset != null) {
-        defaultCSS = `<link rel="stylesheet" href="${layoutCSSStaticAsset.url}" />`;
+        defaultCSS = `<link class=ssr rel="stylesheet" href="${layoutCSSStaticAsset.url}" />`;
       } else if (defaultCSSStaticAsset != null) {
-        defaultCSS = `<link rel="stylesheet" href="${defaultCSSStaticAsset.url}" />`;
+        defaultCSS = `<link class=ssr rel="stylesheet" href="${defaultCSSStaticAsset.url}" />`;
       }
       
       ssrRenderGroups.set(name, new SSRRenderGroupCache(
@@ -486,7 +493,7 @@ export class DevExtension<
       const pageCSSStaticAsset = pageCSSAssets.get(`layouts/${pagePath}.css`);
 
       if (pageCSSStaticAsset != null) {
-        head += `<link rel="stylesheet" href="${pageCSSStaticAsset.url}" />`;
+        head += `<link class=ssr rel="stylesheet" href="${pageCSSStaticAsset.url}" />`;
       } else {
         head += ssrRenderGroup.defaultCSS ?? '';
       }
@@ -503,6 +510,7 @@ export class DevExtension<
       const pages: PageTemplatePage[] = [];
 
       for (let i = 0, length = modHandlers.length; i < length; i++) {
+        const pagePath = modHandlers[i].meta[pagePathSym];
         staticAsset = pageStaticAssets.get(`pages/${pagePath}.ts`)
           ?? pageStaticAssets.get(`pages/${pagePath}.js`);
 
@@ -522,7 +530,7 @@ export class DevExtension<
 
       ssrPages.set(pagePath, new SSRPageCache(
         pagePath,
-        head,
+        escapeScript(head),
         ssrRenderGroup.layout,
         views,
         asyncImports.typeHandlers,
@@ -642,6 +650,7 @@ export class DevExtension<
       handlers: [
         this.jsonLDHandler(),
         longformHandler,
+        problemDetailsJSONHandler,
       ],
     });
 
@@ -722,6 +731,7 @@ export class DevExtension<
 
     html += page.layout.tail ?? '';
     html = html.replace(/<\/head>/, page.head + '</head>');
+
     html = html.replace(/<\/body><\/html>$/, mountPointState + initialState + '</body></html>');
 
     // The store can have a http status set if an octiron selection has `{ mainEntity: true }` in

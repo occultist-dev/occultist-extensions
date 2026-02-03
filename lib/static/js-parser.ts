@@ -118,8 +118,8 @@ export class JSReferenceParser implements ReferenceParser {
       },
     });
     const serialized = generate(updated);
-    //const minified = await minify(serialized);
+    const minified = await minify(serialized);
 
-    return new Blob([serialized], { type: file.contentType });
+    return new Blob([minified.code], { type: file.contentType });
   }
 }

@@ -132,11 +132,11 @@ export class TSReferencePreprocessor implements ReferencePreprocessor {
     const transformed = result.transformed[0];
     const code = printer.printFile(transformed as SourceFile);
     const javascript = transpileModule(code, { compilerOptions: { module: ModuleKind.ES2022 }});
-    //const minified = await minify(javascript.outputText);
+    const minified = await minify(javascript.outputText);
 
     result.dispose();
 
-    return new Blob([javascript.outputText], { type: this.output });
+    return new Blob([minified.code], { type: this.output });
   }
 
 }
