@@ -173,7 +173,7 @@ export class StaticExtension implements Extension, StaticAssetExtension {
       );
     }
 
-    await Promise.all(promises);
+    await Promise.allSettled(promises);
   }
 
   get dependencies(): DependencyGraph | undefined {

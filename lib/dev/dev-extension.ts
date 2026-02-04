@@ -1,8 +1,8 @@
 import {longform, type ParsedResult} from '@longform/longform';
 import {expand, JSONLDContextStore, type JSONObject} from '@occultist/mini-jsonld';
-import type {HandlerDefinition, StaticAsset, ActionSpec, AuthState, Cache, Context, ContextState, Extension, HandlerArgs, Registry} from "@occultist/occultist";
+import type {ActionSpec, AuthState, Cache, Context, ContextState, Extension, HandlerArgs, HandlerDefinition, Registry, StaticAsset} from "@occultist/occultist";
 import {MemoryCache} from "@occultist/occultist";
-import {longformHandler, problemDetailsJSONHandler, octiron, type Fetcher, type JSONLDHandler, type ResponseHook, type StoreArgs} from '@octiron/octiron';
+import {longformHandler, octiron, problemDetailsJSONHandler, type Fetcher, type JSONLDHandler, type ResponseHook, type StoreArgs} from '@octiron/octiron';
 import m from 'mithril';
 import render from 'mithril-node-render';
 import {readdir, readFile} from 'node:fs/promises';
@@ -11,11 +11,11 @@ import type {StaticExtensionArgs} from '../static/static-extension.ts';
 import {StaticExtension} from '../static/static-extension.ts';
 import type {StaticFile} from '../static/types.ts';
 import {AsyncImports} from './async-imports.ts';
+import {escapeScript} from './escape-script.ts';
 import {renderPageTemplate, type PageTemplatePage} from './scripts.ts';
 import {SSRPageCache} from './ssr-page-cache.ts';
 import {SSRRenderGroupCache} from './ssr-render-group-cache.ts';
 import type {CommonOctironArgs, SSRView} from './types.ts';
-import {escapeScript} from './escape-script.ts';
 
 /**
  * Symbol used for locating action handlers created via this extension.
@@ -541,6 +541,29 @@ export class DevExtension<
     this.#asyncImports = null;
   }
 
+  jsonld<
+    State extends ContextState = ContextState,
+    Auth extends AuthState = AuthState,
+    Spec extends ActionSpec = ActionSpec,
+    JSONLDHandler = ((
+      ctx: Context<State, Auth, Spec>,
+    ) => JSONObject | void | Promise<JSONObject | void>),
+  >(arg1: JSONObject | JSONLDHandler): HandlerArgs<State, Auth, Spec> {
+    return {
+      contentType: ['application/ld+json', 'application/json'],
+      handler: async (ctx) => {
+        const res = typeof arg1 === 'function' ? await arg1(ctx) : arg1;
+
+        if (ctx.body == null &&
+            typeof res != null) {
+          if (res['@id'] == null) res['@id'] = ctx.url;
+
+          ctx.body = JSON.stringify(res);
+        }
+      },
+    };
+  }
+
   /**
    * Uses the DotDev extension to render a HTML page.
    *
@@ -550,7 +573,7 @@ export class DevExtension<
    *   to, allowing client side navigation and state presivation between
    *   pages in the group.
    */
-  handlePage<
+  html<
     State extends ContextState = ContextState,
     Auth extends AuthState = AuthState,
     Spec extends ActionSpec = ActionSpec,
