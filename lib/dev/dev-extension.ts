@@ -1,6 +1,6 @@
 import {longform, type ParsedResult} from '@longform/longform';
 import {expand, JSONLDContextStore, type JSONObject} from '@occultist/mini-jsonld';
-import type {ActionSpec, AuthState, Cache, Context, ContextState, Extension, HandlerArgs, HandlerDefinition, Registry, StaticAsset} from "@occultist/occultist";
+import type {ActionSpec, AuthState, Cache, Context, ContextState, Extension, HandleArgs, HandlerArgs, HandlerDefinition, HandlerObj, Registry, StaticAsset} from "@occultist/occultist";
 import {MemoryCache} from "@occultist/occultist";
 import {longformHandler, octiron, problemDetailsJSONHandler, type Fetcher, type JSONLDHandler, type ResponseHook, type StoreArgs} from '@octiron/octiron';
 import m from 'mithril';
@@ -545,10 +545,25 @@ export class DevExtension<
     State extends ContextState = ContextState,
     Auth extends AuthState = AuthState,
     Spec extends ActionSpec = ActionSpec,
-    JSONLDHandler = ((
-      ctx: Context<State, Auth, Spec>,
-    ) => JSONObject | void | Promise<JSONObject | void>),
-  >(arg1: JSONObject | JSONLDHandler): HandlerArgs<State, Auth, Spec> {
+  >(value: JSONObject): HandlerObj<State, Auth, Spec>;
+
+  jsonld<
+    State extends ContextState = ContextState,
+    Auth extends AuthState = AuthState,
+    Spec extends ActionSpec = ActionSpec,
+  >(
+    handler: (ctx: Context<State, Auth, Spec>) => JSONObject | void | Promise<JSONObject | void>,
+  ): HandlerObj<State, Auth, Spec>;
+
+  jsonld<
+    State extends ContextState = ContextState,
+    Auth extends AuthState = AuthState,
+    Spec extends ActionSpec = ActionSpec,
+  >(arg1: unknown): HandlerObj<
+      State,
+      Auth,
+      Spec
+    > {
     return {
       contentType: ['application/ld+json', 'application/json'],
       handler: async (ctx) => {
@@ -577,7 +592,7 @@ export class DevExtension<
     State extends ContextState = ContextState,
     Auth extends AuthState = AuthState,
     Spec extends ActionSpec = ActionSpec,
-  >(pagePath: string, renderGroup?: GroupName): HandlerArgs<
+  >(pagePath: string, renderGroup?: GroupName): HandlerObj<
     State,
     Auth,
     Spec
@@ -782,7 +797,11 @@ export class DevExtension<
       integrationType: 'jsonld',
       handler: async ({ res }) => {
         const json = await res.json();
+        console.log('INPUT', structuredClone(json));
         const jsonld: JSONObject = await expand(json, { store }) as JSONObject;
+
+        console.log('URL', res.url);
+        console.log('JSONLD', jsonld);
 
         return { jsonld };
       },
