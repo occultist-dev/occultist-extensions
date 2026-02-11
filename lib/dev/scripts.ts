@@ -14,6 +14,7 @@ export type PageTemplateArgs = {
   mithrilURL: string;
   octironURL: string;
   typeHandlersURL: string;
+  defaultModuleURL?: string;
   octironArgs: CommonOctironArgs;
   pages: PageTemplatePage[];
 };
@@ -22,6 +23,8 @@ export const pageTemplate = `\
 <script class=ssr type=module>
 import m from '{{mithrilURL}}';
 import { octiron, jsonLDHandler, longformHandler, problemDetailsJSONHandler } from '{{octironURL}}';
+
+{{defaultModuleImport}}
 
 // could be unused.
 {{typeHandlersImport}}
@@ -99,7 +102,7 @@ async function renderPage(initial) {
     const element = mountPoint.cloneNode();
     m.mount(element, {
       view() {
-        const view = page[mountPoints[i]];
+        const view = page[mountPoints[i]] ?? defaults[mountPoints[i]];
 
         if (mountPoints[i] === 'head') {
           // always render the head
@@ -144,8 +147,6 @@ if (window.navigation != null) {
       return;
     }
     
-    console.log('PAGES', pages);
-    console.log('PATHNAME', url.pathname);
     importPath = getImportPath(url.pathname);
 
     if (importPath == null) return;
@@ -192,6 +193,10 @@ export function renderPageTemplate(args: PageTemplateArgs) {
       }
 
       return '';
+    } else if (variable === 'defaultModuleImport' && args.defaultModuleURL) {
+      return `import * as defaults from '${args.defaultModuleURL}';`;
+    } else if (variable === 'defaultModuleImport') {
+      return `const defaults = {};`;
     } else if (variable === 'typeHandlersArg') {
       if (args.typeHandlersURL != null) {
         return 'typeHandlers,';

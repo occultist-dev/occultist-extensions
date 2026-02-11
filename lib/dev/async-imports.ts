@@ -5,6 +5,7 @@ import type {SSRView} from "./types.ts";
 export class AsyncImports {
   typeHandlers!: TypeHandler<any>[];
   defaultLayout!: string;
+  defaultModule?: Map<string, SSRView>;
   groupLayouts: Map<string, string> = new Map();
   pageViews: Map<string, Map<string, SSRView>> = new Map();
 }

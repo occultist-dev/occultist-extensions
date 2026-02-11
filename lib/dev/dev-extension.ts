@@ -15,7 +15,7 @@ import {escapeScript} from './escape-script.ts';
 import {renderPageTemplate, type PageTemplatePage} from './scripts.ts';
 import {SSRPageCache} from './ssr-page-cache.ts';
 import {SSRRenderGroupCache} from './ssr-render-group-cache.ts';
-import type {CommonOctironArgs, SSRView} from './types.ts';
+import type {CommonOctironArgs, SSRModule, SSRView} from './types.ts';
 
 /**
  * Symbol used for locating action handlers created via this extension.
@@ -260,6 +260,21 @@ export class DevExtension<
       asyncImports.defaultLayout = await readFile(join(this.#defaultsDir, 'layout.lf'), 'utf-8');
     } catch {
       asyncImports.defaultLayout = defaultLayoutContent;
+    }
+
+    console.log(join(this.#defaultsDir, 'layout.ts'));
+
+    console.log(`Importing default module at 'defaults/layout.ts'`);
+    try {
+      const mod: SSRModule = await import(join(this.#defaultsDir, 'layout.ts'));
+
+      asyncImports.defaultModule = new Map();
+
+      for (const [key, view] of Object.entries(mod)) {
+        if (typeof view === 'function') asyncImports.defaultModule.set(key, view);
+      }
+    } catch (err) {
+      throw err;
     }
 
     for (const fileName of await readdir(this.#layoutsDir)) {
@@ -519,11 +534,14 @@ export class DevExtension<
           importPath: staticAsset.url,
         });
       }
+      
+      const defaultModule = this.#registry.getStaticAsset('defaults/layout.ts');
 
       head += renderPageTemplate({
         mithrilURL,
         octironURL,
         typeHandlersURL: typeHandlersJSAsset?.url,
+        defaultModuleURL: defaultModule?.url,
         octironArgs: this.#octironArgs,
         pages,
       });
@@ -538,7 +556,7 @@ export class DevExtension<
     }
 
     this.#ssrPages = ssrPages;
-    this.#asyncImports = null;
+    //this.#asyncImports = null;
   }
 
   jsonld<
@@ -731,9 +749,13 @@ export class DevExtension<
       // behaviour which can mount more than one DOM node
       // and be targeted by `m.redraw()` globally.
       const mountPoint = page.layout.mountPoints[i];
-      const view = page.views.get(mountPoint.id);
+      const view = page.views.get(mountPoint.id) ||
+        this.#asyncImports.defaultModule?.get(mountPoint.id);
 
-      if (typeof view !== 'function') continue;
+      if (typeof view !== 'function') {
+        renders.push(Promise.resolve([mountPoint, '']));
+        continue;
+      }
  
       // each mountpoint has a simple Mithril component
       // defined for it, calling the module's view fn using
@@ -749,7 +771,7 @@ export class DevExtension<
       renders.push(new Promise(async (resolve) => {
         resolve([
           mountPoint,
-          await renderLoop(component),
+          await renderLoop(component) ?? '',
         ]);
       }));
     }
@@ -784,9 +806,6 @@ export class DevExtension<
         const res = await this.#registry.handleRequest(
           new Request(url, init),
         );
-
-        const res2 = res.clone();
-        const body = await res2.json();
 
         return res;
       }
