@@ -365,15 +365,15 @@ export class DevExtension<
     let globalHead = '';
 
     for (const staticAsset of this.#registry.queryStaticAssets(styleNames)) {
-      globalHead += `<link class=ssr rel=stylesheet href=${staticAsset.url} />`;
+      globalHead += `<link data-cult=ssr rel=stylesheet href=${staticAsset.url} />`;
     }
 
     if (resetCSSAsset != null) {
-      globalHead += `<link class=ssr rel="stylesheet" href="${resetCSSAsset.url}" />`;
+      globalHead += `<link data-cult=ssr rel="stylesheet" href="${resetCSSAsset.url}" />`;
     }
 
     if (appCSSStaticAsset != null) {
-      globalHead += `<link class=ssr rel="stylesheet" href="${appCSSStaticAsset.url}" />`;
+      globalHead += `<link data-cult=ssr rel="stylesheet" href="${appCSSStaticAsset.url}" />`;
     }
 
     let mithrilURL: string;
@@ -392,7 +392,7 @@ export class DevExtension<
       }
     }
 
-    globalHead += `<script class=ssr type="importmap">${JSON.stringify({ imports })}</script>`;
+    globalHead += `<script data-cult=ssr type="importmap">${JSON.stringify({ imports })}</script>`;
 
     let defaultSSRRenderGroup: SSRRenderGroupCache | undefined;
     const ssrRenderGroups: Map<string, SSRRenderGroupCache> = new Map();
@@ -403,9 +403,9 @@ export class DevExtension<
     const layoutCSSStaticAsset = layoutCSSAssets.get(`defaults/layout.css`);
 
     if (layoutCSSStaticAsset != null) {
-      defaultCSS = `<link class=ssr rel="stylesheet" href="${layoutCSSStaticAsset.url}" />`;
+      defaultCSS = `<link data-cult=ssr rel="stylesheet" href="${layoutCSSStaticAsset.url}" />`;
     } else if (defaultCSSStaticAsset != null) {
-      defaultCSS = `<link class=ssr rel="stylesheet" href="${defaultCSSStaticAsset.url}" />`;
+      defaultCSS = `<link data-cult=ssr rel="stylesheet" href="${defaultCSSStaticAsset.url}" />`;
     }
     
     defaultSSRRenderGroup = new SSRRenderGroupCache(
@@ -428,9 +428,9 @@ export class DevExtension<
       const layoutCSSStaticAsset = layoutCSSAssets.get(`layouts/${layoutPath}.css`);
 
       if (layoutCSSStaticAsset != null) {
-        defaultCSS = `<link class=ssr rel="stylesheet" href="${layoutCSSStaticAsset.url}" />`;
+        defaultCSS = `<link data-cult=ssr rel="stylesheet" href="${layoutCSSStaticAsset.url}" />`;
       } else if (defaultCSSStaticAsset != null) {
-        defaultCSS = `<link class=ssr rel="stylesheet" href="${defaultCSSStaticAsset.url}" />`;
+        defaultCSS = `<link data-cult=ssr rel="stylesheet" href="${defaultCSSStaticAsset.url}" />`;
       }
       
       ssrRenderGroups.set(name, new SSRRenderGroupCache(
@@ -508,7 +508,7 @@ export class DevExtension<
       const pageCSSStaticAsset = pageCSSAssets.get(`layouts/${pagePath}.css`);
 
       if (pageCSSStaticAsset != null) {
-        head += `<link class=ssr rel="stylesheet" href="${pageCSSStaticAsset.url}" />`;
+        head += `<link data-cult=ssr rel="stylesheet" href="${pageCSSStaticAsset.url}" />`;
       } else {
         head += ssrRenderGroup.defaultCSS ?? '';
       }
@@ -683,6 +683,7 @@ export class DevExtension<
     let html = '';
     let count = 0;
     let currentLength = 0;
+    const state = {};
     const location = new URL(ctx.url);
     const responses: Array<Promise<Response>> = [];
     const renderedMountPoints: string[] = [];
@@ -710,6 +711,12 @@ export class DevExtension<
       ],
     });
 
+    const injected: Record<string, () => m.Children> = {};
+
+    for (const [key, value] of page.views.entries()) {
+      injected[key] = () => value({ o, location, page: injected, state });
+    }
+
     /**
      * SSR Render loop.
      *
@@ -736,7 +743,6 @@ export class DevExtension<
       return render(m(component, { o, location } as any));
     }
 
-    const state = {};
     const renders: Array<Promise<[
       mountpoint: ParsedResult['mountPoints'][0],
       fragment: string,
@@ -764,7 +770,7 @@ export class DevExtension<
       // requiring the mountpoint's component to be re-initialized.
       const component = {
         view() {
-          return view({ o, location, state });
+          return view({ o, location, page: injected, state });
         },
       };
 

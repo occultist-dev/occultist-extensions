@@ -20,7 +20,7 @@ export type PageTemplateArgs = {
 };
 
 export const pageTemplate = `\
-<script class=ssr type=module>
+<script data-cult=ssr type=module>
 import m from '{{mithrilURL}}';
 import { octiron, jsonLDHandler, longformHandler, problemDetailsJSONHandler } from '{{octironURL}}';
 
@@ -34,7 +34,7 @@ import { octiron, jsonLDHandler, longformHandler, problemDetailsJSONHandler } fr
 // being removed. A better approach would be to hydrate the head element
 // which is feasible since child elements of the head element are simple.
 // document.head.vnodes = [];
-const headChildren = Array.from(document.querySelectorAll('head .ssr'));
+const headChildren = Array.from(document.querySelectorAll('head [data-cult=ssr]'));
 // document.head.vnodes = [
 //   {
 //     tag: '!',
@@ -47,6 +47,7 @@ let mod;
 let location = new URL(document.location.toString());
 
 const page = {};
+const injected = {};
 const pages = {{pages}};
 const mountPoints = JSON.parse(document.getElementById('mount-points').innerText);
 const o = octiron.fromInitialState(Object.assign({{octironArgs}}, {
@@ -80,10 +81,21 @@ async function renderPage(initial) {
 
   for (const key of Object.keys(page)) {
     delete page[key];
+    delete injected[key];
   }
 
   for (let i = 0, length = mountPoints.length; i < length; i++) {
     page[mountPoints[i]] = mod[mountPoints[i]];
+  }
+
+  for (const [key, value] of Object.entries(mod)) {
+    if (typeof value === 'function') {
+      injected[key] = () => mod[key]({
+        o,
+        location,
+        page: injected,
+      });
+    }
   }
 
   if (!initial) {
@@ -107,14 +119,14 @@ async function renderPage(initial) {
         if (mountPoints[i] === 'head') {
           // always render the head
           return [
-            view?.({ o, location }),
+            view?.({ o, location, page: injected }),
             m.dom(headChildren),
           ];
         }
 
         if (view == null) return null;
 
-        return view({ o, location });
+        return view({ o, location, page: injected });
       },
     });
 
@@ -125,7 +137,7 @@ async function renderPage(initial) {
       mountPoint.replaceWith(element);
     //}
 
-    document.body.dataset['mounted'] = 'true';
+    document.body.toggleAttribute('data-mounted', true);
     performance.mark('occultist:mount:end');
     performance.measure(
       'occultist:mount:duration',

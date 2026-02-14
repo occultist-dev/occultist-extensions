@@ -18,6 +18,7 @@ export type SSRViewArgs<
   o: Octiron;
   location: URL;
   state: State;
+  page: Record<string, () => Children>;
 };
 
 export type SSRView<
