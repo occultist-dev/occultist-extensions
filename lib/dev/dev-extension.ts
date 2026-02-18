@@ -822,11 +822,7 @@ export class DevExtension<
       integrationType: 'jsonld',
       handler: async ({ res }) => {
         const json = await res.json();
-        console.log('INPUT', structuredClone(json));
         const jsonld: JSONObject = await expand(json, { store }) as JSONObject;
-
-        console.log('URL', res.url);
-        console.log('JSONLD', jsonld);
 
         return { jsonld };
       },
