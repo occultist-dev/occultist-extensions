@@ -66,6 +66,9 @@ importers:
       json-ptr:
         specifier: ^3.1.1
         version: 3.1.1
+      prettier:
+        specifier: ^3.8.1
+        version: 3.8.1
       uri-templates:
         specifier: ^0.2.0
         version: 0.2.0
@@ -339,6 +342,11 @@ packages:
 
   parse5@8.0.0:
     resolution: {integrity: sha512-9m4m5GSgXjL4AjumKzq1Fgfp3Z8rsvjRNbnkVwfu2ImRqE5D0LnY2QfDen18FSY9C573YU5XxSapdHZTZ2WolA==}
+
+  prettier@3.8.1:
+    resolution: {integrity: sha512-UOnG6LftzbdaHZcKoPFtOcCKztrQ57WkHDeRD9t/PTQtmT0NHSeWWepj6pS0z/N7+08BHFDQVUrfmfMRcZwbMg==}
+    engines: {node: '>=14'}
+    hasBin: true
 
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
@@ -728,6 +736,8 @@ snapshots:
   parse5@8.0.0:
     dependencies:
       entities: 6.0.1
+
+  prettier@3.8.1: {}
 
   punycode@2.3.1: {}
 

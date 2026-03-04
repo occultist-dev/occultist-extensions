@@ -1,6 +1,6 @@
 import {longform, type ParsedResult} from '@longform/longform';
 import {expand, JSONLDContextStore, type JSONObject} from '@occultist/mini-jsonld';
-import type {ActionSpec, AuthState, Cache, Context, ContextState, Extension, HandleArgs, HandlerArgs, HandlerDefinition, HandlerObj, Registry, StaticAsset} from "@occultist/occultist";
+import type {ActionSpec, AuthState, Cache, Context, ContextState, Extension, HandlerDefinition, HandlerObj, Registry, StaticAsset} from "@occultist/occultist";
 import {MemoryCache} from "@occultist/occultist";
 import {longformHandler, octiron, problemDetailsJSONHandler, type Fetcher, type JSONLDHandler, type ResponseHook, type StoreArgs} from '@octiron/octiron';
 import m from 'mithril';
@@ -16,6 +16,7 @@ import {renderPageTemplate, type PageTemplatePage} from './scripts.ts';
 import {SSRPageCache} from './ssr-page-cache.ts';
 import {SSRRenderGroupCache} from './ssr-render-group-cache.ts';
 import type {CommonOctironArgs, SSRModule, SSRView} from './types.ts';
+import {format} from 'prettier';
 
 /**
  * Symbol used for locating action handlers created via this extension.
@@ -365,7 +366,7 @@ export class DevExtension<
     let globalHead = '';
 
     for (const staticAsset of this.#registry.queryStaticAssets(styleNames)) {
-      globalHead += `<link data-cult=ssr rel=stylesheet href=${staticAsset.url} />`;
+      globalHead += `<link data-cult=ssr rel="stylesheet" href="${staticAsset.url}" />`;
     }
 
     if (resetCSSAsset != null) {
@@ -682,18 +683,19 @@ export class DevExtension<
   ): Promise<void> {
     let html = '';
     let count = 0;
-    let currentLength = 0;
+    // let currentLength = 0;
     const state = {};
     const location = new URL(ctx.url);
-    const responses: Array<Promise<Response>> = [];
+    const responses: Record<string, Array<Promise<Response>>> = {};
     const renderedMountPoints: string[] = [];
     const primary: StoreArgs['primary'] = {};
     const alternatives: StoreArgs['alternatives'] = new Map();
     const fetcher: Fetcher = (url, args) => {
       return ctx.registry.handleRequest(new Request(url, args));
     };
+    let currentMountPoint: string;
     const responseHook: ResponseHook = (res) => {
-      responses.push(res);
+      responses[currentMountPoint].push(res);
     };
     const headers = Object.fromEntries(ctx.headers.entries());
     const o = octiron({
@@ -722,25 +724,32 @@ export class DevExtension<
      *
      * TODO This likely has the potential for infinite loops or getting stuck.
      */
-    async function renderLoop(component: m.ComponentTypes): Promise<string> {
+    async function renderLoop(mountPoint: string, component: m.ComponentTypes): Promise<string> {
+      let currentLength = 0;
+      
       // render Mithril view, triggering requests via Occultist selectors
       do {
-        let loopLength = currentLength = responses.length;
+        currentMountPoint = mountPoint;
+        let loopLength = currentLength = responses[mountPoint].length;
 
-        await render(m(component, { o, location } as m.Attributes));
+        // There is a bit of juggling here, each render must be sync so the current mount
+        // point keeps its value for each promise raised by the render. This could be
+        // improved by looping over each component in turn so promises page wide resolve for
+        // each pass. 
+        render.sync(m(component, { o, location, page: injected, state } as m.Attributes));
 
         // fetch all entities required by Occultist selector
-        while (loopLength !== responses.length) {
-          loopLength = responses.length;
+        while (loopLength !== responses[mountPoint].length) {
+          loopLength = responses[mountPoint].length;
 
-          await Promise.all(responses);
+          await Promise.all(responses[mountPoint]);
 
           count++;
         }
-      } while (responses.length !== currentLength)
+      } while (responses[mountPoint].length !== currentLength)
 
       // final render with populated store.
-      return render(m(component, { o, location } as any));
+      return render.sync(m(component, { o, location } as any));
     }
 
     const renders: Array<Promise<[
@@ -758,11 +767,13 @@ export class DevExtension<
       const view = page.views.get(mountPoint.id) ||
         this.#asyncImports.defaultModule?.get(mountPoint.id);
 
+      responses[mountPoint.id] = [];
+
       if (typeof view !== 'function') {
         renders.push(Promise.resolve([mountPoint, '']));
         continue;
       }
- 
+
       // each mountpoint has a simple Mithril component
       // defined for it, calling the module's view fn using
       // the same name. a nice aspect of this is in client
@@ -777,7 +788,7 @@ export class DevExtension<
       renders.push(new Promise(async (resolve) => {
         resolve([
           mountPoint,
-          await renderLoop(component) ?? '',
+          await renderLoop(mountPoint.id, component) ?? '',
         ]);
       }));
     }
@@ -792,6 +803,7 @@ export class DevExtension<
       renderedMountPoints.push(mountPoint.id);
     }
 
+
     const initialState = o.store.toInitialState();
     const mountPointState = `<script id="mount-points" types="application/json">${JSON.stringify(renderedMountPoints)}</script>`;
 
@@ -804,6 +816,7 @@ export class DevExtension<
     // its args.
     ctx.status = o.store.httpStatus ?? 200;
     ctx.body = html;
+    // ctx.body = await format(html, { parser: 'html' })
   }
 
   jsonLDHandler(): JSONLDHandler {

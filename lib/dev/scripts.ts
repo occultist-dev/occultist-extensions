@@ -22,7 +22,7 @@ export type PageTemplateArgs = {
 export const pageTemplate = `\
 <script data-cult=ssr type=module>
 import m from '{{mithrilURL}}';
-import { octiron, jsonLDHandler, longformHandler, problemDetailsJSONHandler } from '{{octironURL}}';
+import { octiron, makeJSONLDHandler, longformHandler, problemDetailsJSONHandler } from '{{octironURL}}';
 
 {{defaultModuleImport}}
 
@@ -53,7 +53,7 @@ const mountPoints = JSON.parse(document.getElementById('mount-points').innerText
 const o = octiron.fromInitialState(Object.assign({{octironArgs}}, {
   {{typeHandlersArg}}
   handlers: [
-    jsonLDHandler,
+    makeJSONLDHandler(),
     longformHandler,
     problemDetailsJSONHandler,
   ],
