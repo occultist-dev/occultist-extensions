@@ -752,10 +752,10 @@ export class DevExtension<
       return render.sync(m(component, { o, location } as any));
     }
 
-    const renders: Array<Promise<[
+    const renders: Array<[
       mountpoint: ParsedResult['mountPoints'][0],
       fragment: string,
-    ]>> = [];
+    ]> = [];
 
     for (let i = 0; i < page.layout.mountPoints.length; i++) {
       // A longform layout can set multiple mountpoints.
@@ -770,7 +770,8 @@ export class DevExtension<
       responses[mountPoint.id] = [];
 
       if (typeof view !== 'function') {
-        renders.push(Promise.resolve([mountPoint, '']));
+        // renders.push(Promise.resolve([mountPoint, '']));
+        renders.push([mountPoint, '']);
         continue;
       }
 
@@ -785,18 +786,18 @@ export class DevExtension<
         },
       };
 
-      renders.push(new Promise(async (resolve) => {
-        resolve([
+      // renders.push(new Promise(async (resolve) => {
+        renders.push([
           mountPoint,
           await renderLoop(mountPoint.id, component) ?? '',
         ]);
-      }));
+      // }));
     }
 
-    const rendered = await Promise.all(renders);
+    // const rendered = await Promise.all(renders);
 
-    for (let i = 0; i < rendered.length; i++) {
-      const [mountPoint, fragment] = rendered[i];
+    for (let i = 0; i < renders.length; i++) {
+      const [mountPoint, fragment] = renders[i];
 
       html += mountPoint.part;
       html += fragment;
@@ -816,7 +817,7 @@ export class DevExtension<
     // its args.
     ctx.status = o.store.httpStatus ?? 200;
     ctx.body = html;
-    // ctx.body = await format(html, { parser: 'html' })
+    //ctx.body = await format(html, { parser: 'html' })
   }
 
   jsonLDHandler(): JSONLDHandler {
