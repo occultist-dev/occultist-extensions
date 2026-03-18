@@ -688,8 +688,8 @@ export class DevExtension<
     const location = new URL(ctx.url);
     const responses: Record<string, Array<Promise<Response>>> = {};
     const renderedMountPoints: string[] = [];
-    const primary: StoreArgs['primary'] = {};
-    const alternatives: StoreArgs['alternatives'] = new Map();
+    //.const primary: StoreArgs['primary'] = new Map()
+    //const alternatives: StoreArgs['alternatives'] = new Map();
     const fetcher: Fetcher = (url, args) => {
       return ctx.registry.handleRequest(new Request(url, args));
     };
@@ -703,8 +703,8 @@ export class DevExtension<
       headers,
       fetcher,
       responseHook,
-      primary,
-      alternatives,
+      //primary,
+      //alternatives,
       typeHandlers: page.typeHandlers,
       handlers: [
         this.jsonLDHandler(),
@@ -815,7 +815,7 @@ export class DevExtension<
 
     // The store can have a http status set if an octiron selection has `{ mainEntity: true }` in
     // its args.
-    ctx.status = o.store.httpStatus ?? 200;
+    ctx.status = o.store.status ?? 200;
     ctx.body = html;
     //ctx.body = await format(html, { parser: 'html' })
   }
@@ -838,7 +838,7 @@ export class DevExtension<
         const json = await res.json();
         const jsonld: JSONObject = await expand(json, { store }) as JSONObject;
 
-        return { jsonld };
+        return jsonld;
       },
     } satisfies JSONLDHandler;
   }
