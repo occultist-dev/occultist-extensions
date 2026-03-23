@@ -2,7 +2,7 @@ import {longform, type ParsedResult} from '@longform/longform';
 import {expand, JSONLDContextStore, type JSONObject} from '@occultist/mini-jsonld';
 import type {ActionSpec, AuthState, Cache, Context, ContextState, Extension, HandlerDefinition, HandlerObj, Registry, StaticAsset} from "@occultist/occultist";
 import {MemoryCache} from "@occultist/occultist";
-import {longformHandler, octiron, problemDetailsJSONHandler, type Fetcher, type JSONLDHandler, type ResponseHook, type StoreArgs} from '@octiron/octiron';
+import {longformHandler, octiron, problemHandler, type Fetcher, type JSONLDHandler, type ResponseHook, type StoreArgs} from '@octiron/octiron';
 import m from 'mithril';
 import render from 'mithril-node-render';
 import {readdir, readFile} from 'node:fs/promises';
@@ -709,7 +709,7 @@ export class DevExtension<
       handlers: [
         this.jsonLDHandler(),
         longformHandler,
-        problemDetailsJSONHandler,
+        problemHandler,
       ],
     });
 

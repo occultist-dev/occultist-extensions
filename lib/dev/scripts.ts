@@ -22,7 +22,7 @@ export type PageTemplateArgs = {
 export const pageTemplate = `\
 <script data-cult=ssr type=module>
 import m from '{{mithrilURL}}';
-import { octiron, makeJSONLDHandler, longformHandler, problemDetailsJSONHandler } from '{{octironURL}}';
+import { octiron, makeJSONLDHandler, longformHandler, problemHandler } from '{{octironURL}}';
 
 {{defaultModuleImport}}
 
@@ -55,7 +55,7 @@ const o = octiron.fromInitialState(Object.assign({{octironArgs}}, {
   handlers: [
     makeJSONLDHandler(),
     longformHandler,
-    problemDetailsJSONHandler,
+    problemHandler,
   ],
 }));
 
@@ -154,6 +154,7 @@ await renderPage(true);
 if (window.navigation != null) {
   window.navigation.addEventListener('navigate', (event) => {
     const url = new URL(event.destination.url);
+    const prevImportPath = importPath;
     
     if (url.origin !== location.origin) {
       return;
@@ -163,13 +164,23 @@ if (window.navigation != null) {
 
     if (importPath == null) return;
 
-    event.intercept({
-      async handler() {
-        location = url;
+    location = url;
 
-        await renderPage();
-      },
-    });
+    if (importPath === prevImportPath) {
+      m.redraw();
+      event.intercept({
+        focusReset: 'manual',
+        handler() {
+          m.redraw();
+        },
+      });
+    } else {
+      event.intercept({
+        async handler() {
+          await renderPage();
+        },
+      });
+    }
   });
 }
 </script>
